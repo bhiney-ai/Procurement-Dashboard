@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Procurement Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #1a1a2e; min-height: 100vh; }
+
+    header { background: #1a1a2e; color: #fff; padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    header h1 { font-size: 1.15rem; font-weight: 600; letter-spacing: .4px; }
+    .header-right { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .wh-filter { display: flex; align-items: center; gap: 6px; font-size: .8rem; }
+    .wh-filter label { color: #8892a4; }
+    .wh-filter select { background: #2d3748; border: 1px solid #4a5568; color: #fff; border-radius: 5px; padding: 4px 8px; font-size: .8rem; }
+    #last-updated { font-size: .75rem; color: #8892a4; }
+
+    .upload-bar { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 10px 28px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+    .upload-group { display: flex; flex-direction: column; gap: 2px; }
+    .upload-group label { font-size: .74rem; color: #4a5568; font-weight: 600; }
+    .upload-group .sublabel { font-size: .68rem; color: #a0aec0; }
+    .upload-group input[type="file"] { font-size: .75rem; color: #4a5568; }
+    .upload-bar .hint { font-size: .72rem; color: #a0aec0; margin-left: auto; }
+
+    .main { padding: 20px 28px; display: flex; flex-direction: column; gap: 20px; }
+
+    .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .kpi-card { background: #fff; border-radius: 10px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); border-left: 4px solid transparent; display: flex; flex-direction: column; gap: 5px; }
+    .kpi-card.green  { border-color: #48bb78; }
+    .kpi-card.yellow { border-color: #ecc94b; }
+    .kpi-card.orange { border-color: #ed8936; }
+    .kpi-card.red    { border-color: #f56565; }
+    .kpi-label { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #718096; }
+    .kpi-value { font-size: 1.9rem; font-weight: 700; line-height: 1; }
+    .kpi-card.green  .kpi-value { color: #276749; }
+    .kpi-card.yellow .kpi-value { color: #744210; }
+    .kpi-card.orange .kpi-value { color: #7b341e; }
+    .kpi-card.red    .kpi-value { color: #822727; }
+    .kpi-sub { font-size: .73rem; color: #a0aec0; }
+
+    .chart-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .chart-row-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 14px; }
+
+    .card { background: #fff; border-radius: 10px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .card h2 { font-size: .78rem; font-weight: 700; color: #4a5568; margin-bottom: 14px; text-transform: uppercase; letter-spacing: .5px; }
+    .chart-wrap { position: relative; height: 210px; }
+
+    .table-card { background: #fff; border-radius: 10px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .table-card h2 { font-size: .78rem; font-weight: 700; color: #4a5568; margin-bottom: 12px; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 8px; }
+    .table-card h2 .count-pill { background: #fed7d7; color: #c53030; border-radius: 999px; padding: 1px 8px; font-size: .7rem; }
+    .table-card h2 .count-pill.orange { background: #feebc8; color: #c05621; }
+    table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    th { background: #f7fafc; color: #718096; font-weight: 700; text-align: left; padding: 7px 10px; border-bottom: 1px solid #e2e8f0; font-size: .7rem; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+    td { padding: 8px 10px; border-bottom: 1px solid #f0f4f8; color: #2d3748; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f7fafc; }
+    td.mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: .75rem; }
+    .trunc { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .badge { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: .68rem; font-weight: 700; white-space: nowrap; }
+    .badge-red    { background: #fff5f5; color: #c53030; border: 1px solid #feb2b2; }
+    .badge-orange { background: #fffaf0; color: #c05621; border: 1px solid #fbd38d; }
+    .badge-yellow { background: #fffff0; color: #b7791f; border: 1px solid #faf089; }
+    .badge-green  { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
+    .badge-gray   { background: #f7fafc; color: #718096; border: 1px solid #e2e8f0; }
+    .badge-blue   { background: #ebf8ff; color: #2b6cb0; border: 1px solid #90cdf4; }
+
+    .empty { color: #a0aec0; font-size: .8rem; padding: 20px 0; text-align: center; }
+    .no-data { color: #a0aec0; font-size: .75rem; text-align: center; padding: 8px; }
+
+    .sort-btn { cursor: pointer; user-select: none; }
+    .sort-btn:hover { color: #2d3748; }
+
+    @media (max-width: 1100px) { .chart-row-3 { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 900px) { .kpi-row { grid-template-columns: repeat(2,1fr); } .chart-row-2, .chart-row-3 { grid-template-columns: 1fr; } .main { padding: 12px; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Procurement Dashboard</h1>
+  <div class="header-right">
+    <div class="wh-filter">
+      <label>Warehouse</label>
+      <select id="wh-select"><option value="ALL">All Warehouses</option></select>
+    </div>
+    <span id="last-updated">No data loaded</span>
+  </div>
+</header>
+
+<div class="upload-bar">
+  <div class="upload-group">
+    <label>Inventory / Warehouse Dump</label>
+    <span class="sublabel">Combined Models Dump CSV</span>
+    <input type="file" id="inv-file" accept=".csv" />
+  </div>
+  <div class="upload-group">
+    <label>Customer OOS Attempts</label>
+    <span class="sublabel">Columns: date, sku / item_id, qty_attempted</span>
+    <input type="file" id="coos-file" accept=".csv" />
+  </div>
+  <span class="hint">Upload your CSVs above — all metrics update automatically</span>
+</div>
+
+<div class="main">
+
+  <div class="kpi-row">
+    <div class="kpi-card green">
+      <div class="kpi-label">Net In-Stock Rate</div>
+      <div class="kpi-value" id="kpi-instock">—</div>
+      <div class="kpi-sub" id="kpi-instock-sub">Upload inventory CSV</div>
+    </div>
+    <div class="kpi-card red">
+      <div class="kpi-label">On-Hand OOS SKUs</div>
+      <div class="kpi-value" id="kpi-oos">—</div>
+      <div class="kpi-sub" id="kpi-oos-sub">In-catalog items, inventory = 0</div>
+    </div>
+    <div class="kpi-card orange">
+      <div class="kpi-label">Customer OOS Attempts</div>
+      <div class="kpi-value" id="kpi-coos">—</div>
+      <div class="kpi-sub" id="kpi-coos-sub">Upload customer OOS CSV</div>
+    </div>
+    <div class="kpi-card yellow">
+      <div class="kpi-label">Items w/ Past Due POs</div>
+      <div class="kpi-value" id="kpi-pastdue">—</div>
+      <div class="kpi-sub" id="kpi-pastdue-sub">SKUs with past_due qty > 0</div>
+    </div>
+  </div>
+
+  <div class="chart-row-3">
+    <div class="card">
+      <h2>Days of Cover — Distribution</h2>
+      <div class="chart-wrap"><canvas id="chart-doc"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>OOS by Category</h2>
+      <div class="chart-wrap"><canvas id="chart-oos-cat"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Customer OOS Attempts</h2>
+      <div class="chart-wrap"><canvas id="chart-coos"></canvas></div>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <h2>
+      Past Due PO Items
+      <span class="count-pill orange" id="pastdue-count"></span>
+    </h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Category</th>
+          <th>Vendor</th>
+          <th>Warehouse</th>
+          <th>Past Due PO</th>
+          <th>Past Due Qty</th>
+          <th>On Hand</th>
+          <th>Net DoC</th>
+          <th>Next Delivery</th>
+          <th>Consumption/Day</th>
+        </tr>
+      </thead>
+      <tbody id="pastdue-tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="table-card">
+    <h2>
+      On-Hand OOS Items (In Catalog)
+      <span class="count-pill" id="oos-count"></span>
+    </h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Category</th>
+          <th>Vendor</th>
+          <th>Warehouse</th>
+          <th>OOS Since</th>
+          <th>Consumption/Day</th>
+          <th>Net Inventory</th>
+          <th>Net DoC</th>
+          <th>Next PO Delivery</th>
+          <th>Next PO Qty</th>
+          <th>Cust. Attempts (30d)</th>
+        </tr>
+      </thead>
+      <tbody id="oos-tbody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+const TODAY_STR = '2026-04-24';
+const TODAY = new Date(TODAY_STR);
+
+let state = { rows: [], coos: [], warehouse: 'ALL' };
+let charts = {};
+
+// ─── CSV Parser (handles quoted fields) ───────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim().split('\n');
+  if (!lines.length) return [];
+
+  function splitLine(line) {
+    const fields = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQ && line[i+1] === '"') { cur += '"'; i++; }
+        else inQ = !inQ;
+      } else if (ch === ',' && !inQ) {
+        fields.push(cur.trim()); cur = '';
+      } else cur += ch;
+    }
+    fields.push(cur.trim());
+    return fields;
+  }
+
+  const headers = splitLine(lines[0]).map(h => h.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,''));
+  return lines.slice(1).filter(l => l.trim()).map(line => {
+    const vals = splitLine(line);
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = (vals[i] ?? '').replace(/^"|"$/g,''));
+    return obj;
+  });
+}
+
+// ─── Field helpers ────────────────────────────────────────────────────────────
+const num  = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+const bool = v => String(v).toUpperCase() === 'TRUE';
+const topCat = v => (v || '').split(':')[0].trim();
+const fmtDoc = v => { const n = num(v); if (!isFinite(n) || n > 9999) return '∞'; return n.toFixed(0) + 'd'; };
+const fmtRate = v => { const n = num(v); return n ? n.toFixed(2) : '—'; };
+
+// ─── Filtering ────────────────────────────────────────────────────────────────
+function filtered() {
+  if (state.warehouse === 'ALL') return state.rows;
+  return state.rows.filter(r => r.warehouse_name === state.warehouse);
+}
+
+function coosFor(itemId, days) {
+  const cutoff = new Date(TODAY); cutoff.setDate(cutoff.getDate() - days);
+  const cutStr = cutoff.toISOString().slice(0,10);
+  return state.coos
+    .filter(c => (c.item_id === itemId || c.sku === itemId) && c.date >= cutStr)
+    .reduce((s,c) => s + num(c.qty_attempted || 1), 0);
+}
+
+// ─── KPI Cards ────────────────────────────────────────────────────────────────
+function updateKPIs(rows) {
+  const catalog = rows.filter(r => bool(r.in_catalog));
+  const total = catalog.length;
+  const netInStock = catalog.filter(r => num(r.net_inventory) > 0).length;
+  const ohOOS = catalog.filter(r => num(r.inventory) <= 0).length;
+  const pastDueItems = rows.filter(r => num(r.past_due) > 0).length;
+
+  const coosTotal = state.coos.length
+    ? state.coos.reduce((s,c) => s + num(c.qty_attempted || 1), 0)
+    : null;
+  const coosSkus  = state.coos.length
+    ? [...new Set(state.coos.map(c => c.item_id || c.sku))].length
+    : null;
+
+  document.getElementById('kpi-instock').textContent  = total ? (netInStock/total*100).toFixed(1)+'%' : '—';
+  document.getElementById('kpi-instock-sub').textContent = total ? `${netInStock} of ${total} in-catalog SKUs` : 'Upload inventory CSV';
+
+  document.getElementById('kpi-oos').textContent      = total ? ohOOS : '—';
+  document.getElementById('kpi-oos-sub').textContent  = total ? `${ohOOS} of ${total} in-catalog SKUs` : 'Upload inventory CSV';
+
+  document.getElementById('kpi-coos').textContent     = coosTotal !== null ? coosTotal : '—';
+  document.getElementById('kpi-coos-sub').textContent = coosTotal !== null ? `${coosSkus} SKU(s) with demand vs no stock` : 'Upload customer OOS CSV';
+
+  document.getElementById('kpi-pastdue').textContent     = total ? pastDueItems : '—';
+  document.getElementById('kpi-pastdue-sub').textContent = total ? `${rows.filter(r=>num(r.past_due)>0).reduce((s,r)=>s+num(r.past_due),0)} total units past due` : 'Upload inventory CSV';
+}
+
+// ─── Charts ───────────────────────────────────────────────────────────────────
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+function buildDocChart(rows) {
+  destroyChart('doc');
+  const ctx = document.getElementById('chart-doc').getContext('2d');
+  if (!rows.length) return;
+
+  const catalog = rows.filter(r => bool(r.in_catalog));
+  const buckets = { 'OOS (0)': 0, '1–7d': 0, '8–14d': 0, '15–30d': 0, '31–60d': 0, '60d+': 0 };
+  catalog.forEach(r => {
+    const d = num(r.net_days_of_cover);
+    if (d <= 0)       buckets['OOS (0)']++;
+    else if (d <= 7)  buckets['1–7d']++;
+    else if (d <= 14) buckets['8–14d']++;
+    else if (d <= 30) buckets['15–30d']++;
+    else if (d <= 60) buckets['31–60d']++;
+    else              buckets['60d+']++;
+  });
+
+  const colors = ['#f56565','#ed8936','#ecc94b','#68d391','#48bb78','#38a169'];
+  charts['doc'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: Object.keys(buckets),
+      datasets: [{ data: Object.values(buckets), backgroundColor: colors, borderWidth: 0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y} SKUs` } } },
+      scales: {
+        x: { ticks: { font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { font: { size: 10 }, stepSize: 1 }, grid: { color: '#f0f4f8' } }
+      }
+    }
+  });
+}
+
+function buildOosCatChart(rows) {
+  destroyChart('oos-cat');
+  const ctx = document.getElementById('chart-oos-cat').getContext('2d');
+  if (!rows.length) return;
+
+  const oos = rows.filter(r => bool(r.in_catalog) && num(r.inventory) <= 0);
+  const counts = {};
+  oos.forEach(r => { const c = topCat(r.item_class); counts[c] = (counts[c]||0) + 1; });
+  const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0,10);
+
+  charts['oos-cat'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: sorted.map(([k]) => k),
+      datasets: [{ data: sorted.map(([,v]) => v), backgroundColor: '#f56565aa', borderColor: '#f56565', borderWidth: 1 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { font: { size: 10 }, stepSize: 1 }, grid: { color: '#f0f4f8' } },
+        y: { ticks: { font: { size: 9 } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+function buildCoosChart(coos) {
+  destroyChart('coos');
+  const ctx = document.getElementById('chart-coos').getContext('2d');
+  if (!coos.length) {
+    ctx.fillStyle = '#a0aec0';
+    ctx.font = '13px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Upload customer OOS CSV', ctx.canvas.width/2, 110);
+    return;
+  }
+  const byDate = {};
+  coos.forEach(r => { byDate[r.date] = (byDate[r.date]||0) + num(r.qty_attempted||1); });
+  const dates = Object.keys(byDate).sort();
+  charts['coos'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: dates,
+      datasets: [{ label: 'Attempts', data: dates.map(d => byDate[d]), backgroundColor: '#ed893688', borderColor: '#ed8936', borderWidth: 1 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { type: 'time', time: { unit: 'day', displayFormats: { day: 'MMM d' } }, grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 45 } },
+        y: { ticks: { font: { size: 10 } }, grid: { color: '#f0f4f8' } }
+      }
+    }
+  });
+}
+
+// ─── Tables ───────────────────────────────────────────────────────────────────
+function docBadge(v) {
+  const d = num(v);
+  if (!isFinite(d) || d > 9999) return `<span class="badge badge-green">∞</span>`;
+  if (d <= 0)  return `<span class="badge badge-red">OOS</span>`;
+  if (d <= 7)  return `<span class="badge badge-red">${d.toFixed(0)}d</span>`;
+  if (d <= 14) return `<span class="badge badge-orange">${d.toFixed(0)}d</span>`;
+  if (d <= 30) return `<span class="badge badge-yellow">${d.toFixed(0)}d</span>`;
+  return `<span class="badge badge-green">${d.toFixed(0)}d</span>`;
+}
+
+function oosSinceBadge(dateStr) {
+  if (!dateStr) return '<span class="badge badge-gray">Unknown</span>';
+  const d = Math.round((TODAY - new Date(dateStr)) / 86400000);
+  if (d <= 0) return `<span class="badge badge-yellow">Today</span>`;
+  if (d <= 3)  return `<span class="badge badge-orange">${d}d ago</span>`;
+  return `<span class="badge badge-red">${d}d ago</span>`;
+}
+
+function updatePastDueTable(rows) {
+  const pastDue = rows
+    .filter(r => num(r.past_due) > 0)
+    .sort((a,b) => num(b.past_due) - num(a.past_due));
+
+  document.getElementById('pastdue-count').textContent = pastDue.length;
+
+  const tbody = document.getElementById('pastdue-tbody');
+  if (!pastDue.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="empty">No past due PO items</td></tr>';
+    return;
+  }
+  tbody.innerHTML = pastDue.map(r => {
+    const doc = num(r.net_days_of_cover);
+    const docStr = !isFinite(doc) || doc > 9999 ? '∞d' : doc.toFixed(0)+'d';
+    return `<tr>
+      <td class="trunc" title="${r.item_name}"><strong>${r.item_name}</strong></td>
+      <td>${topCat(r.item_class)}</td>
+      <td>${r.vendor_name}</td>
+      <td><span class="badge badge-blue">${r.warehouse_name}</span></td>
+      <td class="mono">${r.purchase_orders_past_due || '—'}</td>
+      <td><strong>${num(r.past_due).toFixed(0)}</strong> ${r.purchase_unit ? r.purchase_unit.replace(/\(.*\)/,'').trim() : ''}</td>
+      <td>${num(r.inventory).toFixed(0)}</td>
+      <td>${docBadge(r.net_days_of_cover)}</td>
+      <td>${r.next_po_delivery_date || '—'}</td>
+      <td>${fmtRate(r.consumption_rate)}/day</td>
+    </tr>`;
+  }).join('');
+}
+
+function updateOosTable(rows, coos) {
+  const oos = rows
+    .filter(r => bool(r.in_catalog) && num(r.inventory) <= 0)
+    .sort((a,b) => num(b.consumption_rate) - num(a.consumption_rate));
+
+  document.getElementById('oos-count').textContent = oos.length;
+
+  const tbody = document.getElementById('oos-tbody');
+  if (!oos.length) {
+    tbody.innerHTML = '<tr><td colspan="11" class="empty">No on-hand OOS items</td></tr>';
+    return;
+  }
+  tbody.innerHTML = oos.map(r => {
+    const attempts = coosFor(r.item_id, 30);
+    return `<tr>
+      <td class="trunc" title="${r.item_name}"><strong>${r.item_name}</strong></td>
+      <td>${topCat(r.item_class)}</td>
+      <td>${r.vendor_name}</td>
+      <td><span class="badge badge-blue">${r.warehouse_name}</span></td>
+      <td>${oosSinceBadge(r.date_out_of_stock)}</td>
+      <td>${fmtRate(r.consumption_rate)}/day</td>
+      <td>${num(r.net_inventory).toFixed(0)}</td>
+      <td>${docBadge(r.net_days_of_cover)}</td>
+      <td>${r.next_po_delivery_date || '—'}</td>
+      <td>${r.next_po_quantity || '—'}</td>
+      <td>${attempts || (coos.length ? '0' : '—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── Warehouse filter ─────────────────────────────────────────────────────────
+function populateWhFilter(rows) {
+  const warehouses = [...new Set(rows.map(r => r.warehouse_name).filter(Boolean))].sort();
+  const sel = document.getElementById('wh-select');
+  sel.innerHTML = '<option value="ALL">All Warehouses</option>';
+  warehouses.forEach(w => {
+    const opt = document.createElement('option');
+    opt.value = w; opt.textContent = w;
+    sel.appendChild(opt);
+  });
+}
+
+document.getElementById('wh-select').addEventListener('change', e => {
+  state.warehouse = e.target.value;
+  render();
+});
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function render() {
+  const rows = filtered();
+  updateKPIs(rows);
+  buildDocChart(rows);
+  buildOosCatChart(rows);
+  buildCoosChart(state.coos);
+  updatePastDueTable(rows);
+  updateOosTable(rows, state.coos);
+}
+
+// ─── File uploads ─────────────────────────────────────────────────────────────
+document.getElementById('inv-file').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  f.text().then(text => {
+    state.rows = parseCSV(text);
+    populateWhFilter(state.rows);
+    state.warehouse = 'ALL';
+    document.getElementById('wh-select').value = 'ALL';
+    const d = state.rows[0]?.order_date || TODAY_STR;
+    document.getElementById('last-updated').textContent = 'Data as of: ' + d;
+    render();
+  });
+});
+
+document.getElementById('coos-file').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  f.text().then(text => {
+    state.coos = parseCSV(text);
+    render();
+  });
+});
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>
