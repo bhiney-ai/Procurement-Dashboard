@@ -88,6 +88,15 @@
 
     .empty { color: #a0aec0; font-size: .78rem; padding: 20px 0; text-align: center; }
 
+    /* Expand / collapse */
+    .expand-row td { padding: 0; border: none; }
+    .expand-btn {
+      width: 100%; padding: 9px 12px; background: #f7fafc; border: none; border-top: 1px solid #e2e8f0;
+      color: #667eea; font-size: .75rem; font-weight: 600; cursor: pointer; text-align: center;
+      letter-spacing: .3px; transition: background .15s;
+    }
+    .expand-btn:hover { background: #edf2ff; }
+
     @media (max-width: 1100px) { .chart-row { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 900px) { .kpi-row { grid-template-columns: repeat(2,1fr); } .chart-row { grid-template-columns: 1fr; } .main { padding: 12px; } }
   </style>
@@ -241,6 +250,34 @@
 // ─── State ────────────────────────────────────────────────────────────────────
 let state = { rows: [], feoos: [], warehouse: 'ALL' };
 let charts = {};
+
+// ─── Expand / collapse ────────────────────────────────────────────────────────
+const PAGE = 20;
+const expanded = {};   // tbodyId -> bool
+const tableRows = {};  // tbodyId -> array of html strings
+
+function renderTable(tbodyId, htmlRows, colSpan) {
+  tableRows[tbodyId] = htmlRows;
+  const isExp = expanded[tbodyId] || false;
+  const visible = isExp ? htmlRows : htmlRows.slice(0, PAGE);
+  let html = visible.join('');
+  if (htmlRows.length > PAGE) {
+    const more = htmlRows.length - PAGE;
+    html += `<tr class="expand-row"><td colspan="${colSpan}">
+      <button class="expand-btn" data-tbody="${tbodyId}">
+        ${isExp ? '▲ Show less' : `▼ Show all ${htmlRows.length} rows — ${more} more`}
+      </button></td></tr>`;
+  }
+  document.getElementById(tbodyId).innerHTML = html;
+}
+
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.expand-btn');
+  if (!btn) return;
+  const id = btn.dataset.tbody;
+  expanded[id] = !expanded[id];
+  renderTable(id, tableRows[id] || [], btn.closest('table').querySelectorAll('th').length);
+});
 
 // ─── CSV parser (handles quoted fields) ───────────────────────────────────────
 function parseCSV(text) {
@@ -401,7 +438,7 @@ function renderFlags(rows, feoos) {
     return;
   }
 
-  tbody.innerHTML = flags.map(f => {
+  renderTable('flags-tbody', flags.map(f => {
     const rowClass = f.priority==='CRITICAL' ? 'flag-row-crit' : f.priority==='HIGH' ? 'flag-row-high' : 'flag-row-watch';
     const badge    = f.priority==='CRITICAL' ? 'badge-crit' : f.priority==='HIGH' ? 'badge-high' : 'badge-watch';
     const issueTags = f.issues.map(i=>`<span class="badge ${badge}" style="margin:1px">${i}</span>`).join(' ');
@@ -417,7 +454,7 @@ function renderFlags(rows, feoos) {
       <td>${docBadge(f.net_days_of_cover)}</td>
       <td>${f.next_po_delivery_date || '—'}</td>
     </tr>`;
-  }).join('');
+  }), 10);
 }
 
 // ─── Charts ───────────────────────────────────────────────────────────────────
@@ -491,9 +528,8 @@ function renderPastDue(rows, feIdx) {
   const today = new Date();
   const pastDue = rows.filter(r=>num(r.past_due)>0).sort((a,b)=>num(b.past_due)-num(a.past_due));
   document.getElementById('pastdue-count').textContent = pastDue.length;
-  const tbody = document.getElementById('pastdue-tbody');
-  if (!pastDue.length) { tbody.innerHTML='<tr><td colspan="10" class="empty">No past due PO items</td></tr>'; return; }
-  tbody.innerHTML = pastDue.map(r => {
+  if (!pastDue.length) { document.getElementById('pastdue-tbody').innerHTML='<tr><td colspan="10" class="empty">No past due PO items</td></tr>'; return; }
+  renderTable('pastdue-tbody', pastDue.map(r => {
     const fe = feooLookup(feIdx, r.warehouse_name, r.item_name);
     const feCell = fe ? `<strong>${fe.qty.toFixed(0)}</strong> <span style="color:#a0aec0;font-size:.7rem">(${fe.events} events)</span>` : '—';
     return `<tr>
@@ -508,16 +544,15 @@ function renderPastDue(rows, feIdx) {
       <td>${feCell}</td>
       <td>${(+r.consumption_rate||0).toFixed(2)}/day</td>
     </tr>`;
-  }).join('');
+  }), 10);
 }
 
 function renderOOS(rows, feIdx) {
   const today = new Date();
   const oos = rows.filter(r=>bool(r.in_catalog)&&num(r.inventory)<=0).sort((a,b)=>num(b.consumption_rate)-num(a.consumption_rate));
   document.getElementById('oos-count').textContent = oos.length;
-  const tbody = document.getElementById('oos-tbody');
-  if (!oos.length) { tbody.innerHTML='<tr><td colspan="10" class="empty">No on-hand OOS items</td></tr>'; return; }
-  tbody.innerHTML = oos.map(r => {
+  if (!oos.length) { document.getElementById('oos-tbody').innerHTML='<tr><td colspan="10" class="empty">No on-hand OOS items</td></tr>'; return; }
+  renderTable('oos-tbody', oos.map(r => {
     const fe = feooLookup(feIdx, r.warehouse_name, r.item_name);
     const feCell = fe ? `<strong>${fe.qty.toFixed(0)}</strong>` : (state.feoos.length?'0':'—');
     return `<tr>
@@ -532,7 +567,7 @@ function renderOOS(rows, feIdx) {
       <td>${r.next_po_delivery_date||'—'}</td>
       <td>${feCell}</td>
     </tr>`;
-  }).join('');
+  }), 10);
 }
 
 // ─── Warehouse filter ─────────────────────────────────────────────────────────
