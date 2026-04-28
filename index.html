@@ -769,9 +769,10 @@ function renderCoverageGap(rows, feIdx) {
   }
 
   function gapBadge(days) {
-    if (days >= 7)  return `<span class="badge badge-crit">${days}d gap</span>`;
-    if (days >= 3)  return `<span class="badge badge-high">${days}d gap</span>`;
-    return `<span class="badge badge-watch">${days}d gap</span>`;
+    const d = Math.round(days);
+    if (d >= 7)  return `<span class="badge badge-crit">${d}d gap</span>`;
+    if (d >= 3)  return `<span class="badge badge-high">${d}d gap</span>`;
+    return `<span class="badge badge-watch">${d}d gap</span>`;
   }
 
   renderTable(tbody, flagged.map(r => {
