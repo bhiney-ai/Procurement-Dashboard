@@ -66,6 +66,10 @@
     .kpi-card.orange .kpi-value { color: #7b341e; }
     .kpi-card.red    .kpi-value { color: #822727; }
     .kpi-sub { font-size: .71rem; color: #a0aec0; }
+    .kpi-delta { font-size: .72rem; font-weight: 600; margin-top: 4px; display: flex; align-items: center; gap: 3px; }
+    .kpi-delta.good { color: #48bb78; }
+    .kpi-delta.bad  { color: #f56565; }
+    .kpi-delta.flat { color: #a0aec0; }
 
     /* Flags */
     .flags-section { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
@@ -187,21 +191,25 @@
       <div class="kpi-label">Net In-Stock Rate</div>
       <div class="kpi-value" id="kpi-instock">—</div>
       <div class="kpi-sub" id="kpi-instock-sub">Upload inventory CSV</div>
+      <div class="kpi-delta flat" id="delta-instock"></div>
     </div>
     <div class="kpi-card red">
       <div class="kpi-label">On-Hand OOS SKUs</div>
       <div class="kpi-value" id="kpi-oos">—</div>
       <div class="kpi-sub" id="kpi-oos-sub">In-catalog, inventory = 0</div>
+      <div class="kpi-delta flat" id="delta-oos"></div>
     </div>
     <div class="kpi-card orange">
       <div class="kpi-label">FEOOS Events (14d)</div>
       <div class="kpi-value" id="kpi-feoos">—</div>
       <div class="kpi-sub" id="kpi-feoos-sub">Upload FEOOS CSV</div>
+      <div class="kpi-delta flat" id="delta-feoos"></div>
     </div>
     <div class="kpi-card yellow">
       <div class="kpi-label">Items w/ Past Due POs</div>
       <div class="kpi-value" id="kpi-pastdue">—</div>
       <div class="kpi-sub" id="kpi-pastdue-sub">SKUs with past_due qty > 0</div>
+      <div class="kpi-delta flat" id="delta-pastdue"></div>
     </div>
   </div>
 
@@ -468,6 +476,40 @@ function feooFiltered() {
   return state.feoos.filter(f => state.warehouses.has(f.warehouse));
 }
 
+// ─── KPI Cache (localStorage) ─────────────────────────────────────────────────
+const KPI_CACHE_KEY = 'procurement_kpi_v1';
+
+function loadKpiCache() {
+  try { return JSON.parse(localStorage.getItem(KPI_CACHE_KEY)) || {}; }
+  catch { return {}; }
+}
+
+function updateKpiCache(today, values) {
+  const cache = loadKpiCache();
+  // First load of a new day — roll current → previous
+  if (cache.current && cache.current.date !== today) {
+    cache.previous = cache.current;
+  }
+  // Only write current once per day (don't overwrite with mid-day refreshes)
+  if (!cache.current || cache.current.date !== today) {
+    cache.current = { date: today, ...values };
+  }
+  localStorage.setItem(KPI_CACHE_KEY, JSON.stringify(cache));
+  return cache.previous || null;
+}
+
+function renderDelta(elId, current, previous, higherIsBetter) {
+  const el = document.getElementById(elId);
+  if (previous == null || previous == null) { el.textContent = ''; return; }
+  const diff = current - previous;
+  if (diff === 0) { el.className = 'kpi-delta flat'; el.textContent = '— no change vs prior day'; return; }
+  const isGood = higherIsBetter ? diff > 0 : diff < 0;
+  const sign   = diff > 0 ? '+' : '';
+  const arrow  = diff > 0 ? '↑' : '↓';
+  el.className = `kpi-delta ${isGood ? 'good' : 'bad'}`;
+  el.textContent = `${arrow} ${sign}${typeof current === 'number' && !Number.isInteger(current) ? diff.toFixed(1) : Math.round(diff)} vs prior day`;
+}
+
 // ─── KPIs ─────────────────────────────────────────────────────────────────────
 function updateKPIs(rows, feoos) {
   const catalog = rows.filter(r=>bool(r.in_catalog));
@@ -478,7 +520,9 @@ function updateKPIs(rows, feoos) {
   const fTotal  = feoos.reduce((s,f)=>s+num(f.quantity_of_feoos_items_requested_in_sales_units),0);
   const fItems  = new Set(feoos.map(f=>normName(f.item_name))).size;
 
-  setText('kpi-instock',     total ? (netIn/total*100).toFixed(1)+'%' : '—');
+  const instockRate = total ? parseFloat((netIn/total*100).toFixed(1)) : null;
+
+  setText('kpi-instock',     total ? instockRate+'%' : '—');
   setText('kpi-instock-sub', total ? `${netIn} of ${total} in-catalog SKUs` : 'Upload inventory CSV');
   setText('kpi-oos',         total ? ohOOS : '—');
   setText('kpi-oos-sub',     total ? `of ${total} in-catalog SKUs` : 'Upload inventory CSV');
@@ -486,6 +530,18 @@ function updateKPIs(rows, feoos) {
   setText('kpi-feoos-sub',   feoos.length ? `${feoos.length.toLocaleString()} events · ${fItems} unique items` : 'Upload FEOOS CSV');
   setText('kpi-pastdue',     total ? pastDue : '—');
   setText('kpi-pastdue-sub', total ? `${rows.filter(r=>num(r.past_due)>0).reduce((s,r)=>s+num(r.past_due),0).toFixed(0)} total units past due` : 'Upload inventory CSV');
+
+  // Cache & deltas (only when we have real data)
+  if (total) {
+    const today = new Date().toISOString().slice(0,10);
+    const prev  = updateKpiCache(today, { instockRate, oosSkus: ohOOS, feoos: fTotal, pastDue });
+    if (prev) {
+      renderDelta('delta-instock', instockRate, prev.instockRate, true);
+      renderDelta('delta-oos',     ohOOS,       prev.oosSkus,     false);
+      renderDelta('delta-feoos',   fTotal,      prev.feoos,       false);
+      renderDelta('delta-pastdue', pastDue,     prev.pastDue,     false);
+    }
+  }
 }
 
 function setText(id,v){ document.getElementById(id).textContent=v; }
