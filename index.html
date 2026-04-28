@@ -452,8 +452,10 @@ function feooLookup(idx, warehouseName, itemName) {
 }
 
 // ─── Filtering ────────────────────────────────────────────────────────────────
+const whPattern = /^[A-Z0-9]{2,8}(-[A-Z0-9]+)?$/;
+
 function filtered() {
-  if (!state.warehouses.size) return state.rows;
+  if (!state.warehouses.size) return state.rows.filter(r => r.warehouse_name && whPattern.test(r.warehouse_name.trim()));
   return state.rows.filter(r => state.warehouses.has(r.warehouse_name));
 }
 
@@ -773,7 +775,8 @@ function renderCoverageGap(rows, feIdx) {
 
 // ─── Warehouse multi-select ───────────────────────────────────────────────────
 function populateWhFilter(rows) {
-  const whs = [...new Set(rows.map(r=>r.warehouse_name).filter(Boolean))].sort();
+  const whPattern = /^[A-Z0-9]{2,8}(-[A-Z0-9]+)?$/;
+  const whs = [...new Set(rows.map(r=>r.warehouse_name).filter(w => w && whPattern.test(w.trim())))].sort();
   const dropdown = document.getElementById('wh-dropdown');
   // Remove old warehouse options (keep "All" at top)
   dropdown.querySelectorAll('.wh-wh').forEach(el => el.remove());
