@@ -706,7 +706,7 @@ function renderOosOverduePo(rows, feIdx) {
       const poDate = new Date(r.next_po_delivery_date); poDate.setHours(0,0,0,0);
       return { ...r, daysOverdue: Math.ceil((today - poDate) / 86400000) };
     })
-    .sort((a, b) => b.daysOverdue - a.daysOverdue);
+    .sort((a, b) => num(b.consumption_rate) - num(a.consumption_rate));
 
   document.getElementById('oospo-count').textContent = flagged.length;
 
