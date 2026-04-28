@@ -438,10 +438,14 @@ function buildFeooIndex(feoos) {
   feoos.forEach(f => {
     const wh  = (f.warehouse||'').trim();
     const key = wh + '::' + normName(f.item_name);
-    if (!idx[key]) idx[key] = { qty:0, events:0, locations: new Set(), item_name: f.item_name, brand: f.brand_name, warehouse: wh };
+    if (!idx[key]) idx[key] = { qty:0, events:0, locations: new Set(), item_name: f.item_name, brand: f.brand_name, warehouse: wh, earliestDate: f.feoos_event_date };
     idx[key].qty    += num(f.quantity_of_feoos_items_requested_in_sales_units);
     idx[key].events++;
     idx[key].locations.add(f.location_name);
+    // Track earliest FEOOS event date
+    if (f.feoos_event_date && (!idx[key].earliestDate || f.feoos_event_date < idx[key].earliestDate)) {
+      idx[key].earliestDate = f.feoos_event_date;
+    }
   });
   return idx;
 }
@@ -657,12 +661,26 @@ function renderOOS(rows, feIdx) {
   renderTable('oos-tbody', oos.map(r => {
     const fe = feooLookup(feIdx, r.warehouse_name, r.item_name);
     const feCell = fe ? `<strong>${fe.qty.toFixed(0)}</strong>` : (state.feoos.length?'0':'—');
+
+    // Inform OOS Since from FEOOS earliest event date
+    let oosSinceCell;
+    if (fe && fe.earliestDate) {
+      const daysBack = Math.round((today - new Date(fe.earliestDate)) / 86400000);
+      if (daysBack >= 14) {
+        oosSinceCell = `<span class="badge badge-crit">+14 Days</span>`;
+      } else {
+        oosSinceCell = oosSinceBadge(fe.earliestDate, today);
+      }
+    } else {
+      oosSinceCell = oosSinceBadge(r.date_out_of_stock, today);
+    }
+
     return `<tr>
       <td class="trunc" title="${r.item_name}"><strong>${r.item_name}</strong></td>
       <td>${topCat(r.item_class)}</td>
       <td>${r.vendor_name}</td>
       <td><span class="badge badge-blue">${r.warehouse_name}</span></td>
-      <td>${oosSinceBadge(r.date_out_of_stock, today)}</td>
+      <td>${oosSinceCell}</td>
       <td>${(+r.consumption_rate||0).toFixed(2)}/day</td>
       <td>${num(r.net_inventory).toFixed(0)}</td>
       <td>${docBadge(r.net_days_of_cover)}</td>
