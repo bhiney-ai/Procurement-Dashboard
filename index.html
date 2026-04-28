@@ -13,9 +13,18 @@
     header { background: #1a1a2e; color: #fff; padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
     header h1 { font-size: 1.1rem; font-weight: 600; }
     .header-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-    .wh-filter { display: flex; align-items: center; gap: 6px; font-size: .8rem; }
+    .wh-filter { display: flex; align-items: center; gap: 6px; font-size: .8rem; position: relative; }
     .wh-filter label { color: #8892a4; }
-    .wh-filter select { background: #2d3748; border: 1px solid #4a5568; color: #fff; border-radius: 5px; padding: 4px 8px; font-size: .8rem; }
+    .wh-btn { background: #2d3748; border: 1px solid #4a5568; color: #fff; border-radius: 5px; padding: 4px 10px; font-size: .8rem; cursor: pointer; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .wh-btn:hover { background: #3a4a5c; }
+    .wh-btn .chevron { font-size: .6rem; transition: transform .15s; }
+    .wh-btn.open .chevron { transform: rotate(180deg); }
+    .wh-dropdown { display: none; position: absolute; top: calc(100% + 6px); right: 0; background: #1e2a3a; border: 1px solid #4a5568; border-radius: 7px; min-width: 180px; box-shadow: 0 4px 16px rgba(0,0,0,.3); z-index: 100; overflow: hidden; }
+    .wh-dropdown.open { display: block; }
+    .wh-option { display: flex; align-items: center; gap: 8px; padding: 7px 12px; cursor: pointer; font-size: .78rem; color: #cbd5e0; transition: background .1s; }
+    .wh-option:hover { background: #2d3748; }
+    .wh-option input[type="checkbox"] { accent-color: #667eea; width: 13px; height: 13px; cursor: pointer; }
+    .wh-option.all-opt { border-bottom: 1px solid #4a5568; color: #fff; font-weight: 600; }
     #last-updated { font-size: .74rem; color: #8892a4; }
 
     .data-bar { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 9px 28px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
@@ -123,9 +132,14 @@
 <header>
   <h1>Procurement Dashboard</h1>
   <div class="header-right">
-    <div class="wh-filter">
+    <div class="wh-filter" id="wh-filter">
       <label>Warehouse</label>
-      <select id="wh-select"><option value="ALL">All Warehouses</option></select>
+      <button class="wh-btn" id="wh-btn">All Warehouses <span class="chevron">▼</span></button>
+      <div class="wh-dropdown" id="wh-dropdown">
+        <label class="wh-option all-opt">
+          <input type="checkbox" id="wh-all" checked /> All Warehouses
+        </label>
+      </div>
     </div>
     <span id="last-updated">No data loaded</span>
   </div>
@@ -286,7 +300,7 @@
 
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
-let state = { rows: [], feoos: [], warehouse: 'ALL' };
+let state = { rows: [], feoos: [], warehouses: new Set() }; // empty Set = All
 let charts = {};
 
 // ─── Expand / collapse ────────────────────────────────────────────────────────
@@ -391,13 +405,13 @@ function feooLookup(idx, warehouseName, itemName) {
 
 // ─── Filtering ────────────────────────────────────────────────────────────────
 function filtered() {
-  if (state.warehouse==='ALL') return state.rows;
-  return state.rows.filter(r => r.warehouse_name===state.warehouse);
+  if (!state.warehouses.size) return state.rows;
+  return state.rows.filter(r => state.warehouses.has(r.warehouse_name));
 }
 
 function feooFiltered() {
-  if (state.warehouse==='ALL') return state.feoos;
-  return state.feoos.filter(f => f.warehouse===state.warehouse);
+  if (!state.warehouses.size) return state.feoos;
+  return state.feoos.filter(f => state.warehouses.has(f.warehouse));
 }
 
 // ─── KPIs ─────────────────────────────────────────────────────────────────────
@@ -608,16 +622,71 @@ function renderOOS(rows, feIdx) {
   }), 10);
 }
 
-// ─── Warehouse filter ─────────────────────────────────────────────────────────
+// ─── Warehouse multi-select ───────────────────────────────────────────────────
 function populateWhFilter(rows) {
   const whs = [...new Set(rows.map(r=>r.warehouse_name).filter(Boolean))].sort();
-  const sel = document.getElementById('wh-select');
-  sel.innerHTML = '<option value="ALL">All Warehouses</option>';
-  whs.forEach(w => { const o=document.createElement('option'); o.value=w; o.textContent=w; sel.appendChild(o); });
+  const dropdown = document.getElementById('wh-dropdown');
+  // Remove old warehouse options (keep "All" at top)
+  dropdown.querySelectorAll('.wh-wh').forEach(el => el.remove());
+  whs.forEach(w => {
+    const lbl = document.createElement('label');
+    lbl.className = 'wh-option wh-wh';
+    lbl.innerHTML = `<input type="checkbox" class="wh-cb" value="${w}" /> ${w}`;
+    lbl.querySelector('input').addEventListener('change', onWhChange);
+    dropdown.appendChild(lbl);
+  });
+  state.warehouses = new Set();
+  updateWhBtn();
 }
 
-document.getElementById('wh-select').addEventListener('change', e => {
-  state.warehouse = e.target.value; render();
+function onWhChange() {
+  const allCb = document.getElementById('wh-all');
+  const cbs   = [...document.querySelectorAll('.wh-cb')];
+  const checked = cbs.filter(c=>c.checked).map(c=>c.value);
+
+  if (this === allCb) {
+    // Toggled "All" — uncheck individuals
+    cbs.forEach(c => { if (c !== allCb) c.checked = false; });
+    state.warehouses = new Set();
+  } else {
+    // Individual toggle — uncheck "All"
+    allCb.checked = false;
+    state.warehouses = new Set(checked.filter(v => v !== 'ALL'));
+    // If nothing checked, revert to All
+    if (!state.warehouses.size) { allCb.checked = true; }
+  }
+  updateWhBtn();
+  render();
+}
+
+function updateWhBtn() {
+  const btn = document.getElementById('wh-btn');
+  const sel = [...state.warehouses];
+  if (!sel.length) {
+    btn.childNodes[0].textContent = 'All Warehouses ';
+  } else if (sel.length === 1) {
+    btn.childNodes[0].textContent = sel[0] + ' ';
+  } else {
+    btn.childNodes[0].textContent = `${sel[0]} +${sel.length - 1} `;
+  }
+}
+
+// Toggle dropdown open/close
+document.getElementById('wh-btn').addEventListener('click', e => {
+  e.stopPropagation();
+  document.getElementById('wh-btn').classList.toggle('open');
+  document.getElementById('wh-dropdown').classList.toggle('open');
+});
+
+// "All" checkbox
+document.getElementById('wh-all').addEventListener('change', onWhChange);
+
+// Close on outside click
+document.addEventListener('click', e => {
+  if (!document.getElementById('wh-filter').contains(e.target)) {
+    document.getElementById('wh-btn').classList.remove('open');
+    document.getElementById('wh-dropdown').classList.remove('open');
+  }
 });
 
 // ─── Render ───────────────────────────────────────────────────────────────────
@@ -674,8 +743,6 @@ async function fetchSource(key) {
     if (key === 'inv') {
       state.rows = rows;
       populateWhFilter(state.rows);
-      state.warehouse = 'ALL';
-      document.getElementById('wh-select').value = 'ALL';
       const d = rows[0]?.order_date || new Date().toISOString().slice(0,10);
       document.getElementById('last-updated').textContent = 'Inventory as of: ' + d;
       setStatus('inv', 'ok', `${rows.length.toLocaleString()} rows · ${d}`);
@@ -699,8 +766,6 @@ document.getElementById('inv-file').addEventListener('change', e => {
   f.text().then(t => {
     state.rows = parseCSV(t);
     populateWhFilter(state.rows);
-    state.warehouse='ALL';
-    document.getElementById('wh-select').value='ALL';
     const d = state.rows[0]?.order_date || new Date().toISOString().slice(0,10);
     document.getElementById('last-updated').textContent = 'Inventory as of: '+d;
     setStatus('inv', 'ok', `${state.rows.length.toLocaleString()} rows (manual)`);
