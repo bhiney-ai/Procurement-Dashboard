@@ -296,6 +296,30 @@
     </table>
   </div>
 
+  <!-- OOS + Overdue PO -->
+  <div class="table-card">
+    <h2>🚨 Zero On-Hand + Overdue PO <span class="pill-count" id="oospo-count"></span></h2>
+    <p style="font-size:.72rem;color:#a0aec0;margin-bottom:10px;">Items with no on-hand inventory where <code>next_po_delivery_date</code> has already passed.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Category</th>
+          <th>Vendor</th>
+          <th>Warehouse</th>
+          <th>On Hand</th>
+          <th>Next PO Delivery</th>
+          <th>Days Overdue</th>
+          <th>Next PO Qty</th>
+          <th>Net DoC (Pipeline)</th>
+          <th>FEOOS (14d)</th>
+          <th>Consumption/Day</th>
+        </tr>
+      </thead>
+      <tbody id="oospo-tbody"></tbody>
+    </table>
+  </div>
+
   <!-- Coverage Gap -->
   <div class="table-card">
     <h2>⚠️ On-Hand Won't Cover Until Next PO <span class="pill-count pill-orange" id="gap-count"></span></h2>
@@ -646,6 +670,55 @@ function renderOOS(rows, feIdx) {
   }), 10);
 }
 
+// ─── OOS + Overdue PO table ───────────────────────────────────────────────────
+function renderOosOverduePo(rows, feIdx) {
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  const flagged = rows
+    .filter(r => {
+      if (!r.next_po_delivery_date) return false;
+      const poDate = new Date(r.next_po_delivery_date); poDate.setHours(0,0,0,0);
+      return num(r.inventory) <= 0 && poDate < today;
+    })
+    .map(r => {
+      const poDate = new Date(r.next_po_delivery_date); poDate.setHours(0,0,0,0);
+      return { ...r, daysOverdue: Math.ceil((today - poDate) / 86400000) };
+    })
+    .sort((a, b) => b.daysOverdue - a.daysOverdue);
+
+  document.getElementById('oospo-count').textContent = flagged.length;
+
+  if (!flagged.length) {
+    document.getElementById('oospo-tbody').innerHTML =
+      '<tr><td colspan="11" class="empty">No items with zero on-hand and an overdue PO</td></tr>';
+    return;
+  }
+
+  function overdueBadge(days) {
+    if (days >= 7)  return `<span class="badge badge-crit">${days}d overdue</span>`;
+    if (days >= 3)  return `<span class="badge badge-high">${days}d overdue</span>`;
+    return `<span class="badge badge-watch">${days}d overdue</span>`;
+  }
+
+  renderTable('oospo-tbody', flagged.map(r => {
+    const fe     = feooLookup(feIdx, r.warehouse_name, r.item_name);
+    const feCell = fe ? `<strong>${fe.qty.toFixed(0)}</strong>` : (state.feoos.length ? '0' : '—');
+    return `<tr>
+      <td class="trunc" title="${r.item_name}"><strong>${r.item_name}</strong></td>
+      <td>${topCat(r.item_class)}</td>
+      <td>${r.vendor_name}</td>
+      <td><span class="badge badge-blue">${r.warehouse_name}</span></td>
+      <td><span class="badge badge-crit">0</span></td>
+      <td>${r.next_po_delivery_date}</td>
+      <td>${overdueBadge(r.daysOverdue)}</td>
+      <td>${r.next_po_quantity || '—'}</td>
+      <td>${docBadge(r.net_days_of_cover)}</td>
+      <td>${feCell}</td>
+      <td>${num(r.consumption_rate).toFixed(2)}/day</td>
+    </tr>`;
+  }), 11);
+}
+
 // ─── Coverage Gap table ───────────────────────────────────────────────────────
 function renderCoverageGap(rows, feIdx) {
   const today = new Date(); today.setHours(0,0,0,0);
@@ -778,6 +851,7 @@ function render() {
   buildDocChart(rows);
   renderPastDue(rows, feIdx);
   renderOOS(rows, feIdx);
+  renderOosOverduePo(rows, feIdx);
   renderCoverageGap(rows, feIdx);
 }
 
