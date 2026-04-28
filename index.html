@@ -735,7 +735,7 @@ function renderCoverageGap(rows, feIdx) {
       const estDoc      = num(r.est_days_of_cover);
       return { ...r, estDoc, daysUntilPo, gap: daysUntilPo - estDoc };
     })
-    .sort((a, b) => b.gap - a.gap);
+    .sort((a, b) => num(b.consumption_rate) - num(a.consumption_rate));
 
   document.getElementById('gap-count').textContent = flagged.length;
   const tbody = 'gap-tbody';
