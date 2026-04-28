@@ -18,7 +18,24 @@
     .wh-filter select { background: #2d3748; border: 1px solid #4a5568; color: #fff; border-radius: 5px; padding: 4px 8px; font-size: .8rem; }
     #last-updated { font-size: .74rem; color: #8892a4; }
 
-    .upload-bar { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 9px 28px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+    .data-bar { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 9px 28px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+    .data-source { display: flex; align-items: center; gap: 7px; font-size: .75rem; }
+    .data-source .ds-label { font-weight: 700; color: #4a5568; }
+    .ds-status { display: flex; align-items: center; gap: 4px; font-size: .72rem; }
+    .ds-dot { width: 7px; height: 7px; border-radius: 50%; background: #a0aec0; flex-shrink: 0; }
+    .ds-dot.ok  { background: #48bb78; }
+    .ds-dot.err { background: #f56565; }
+    .ds-dot.loading { background: #ecc94b; animation: pulse 1s infinite; }
+    .ds-text { color: #718096; }
+    .refresh-btn { margin-left: auto; padding: 6px 14px; background: #1a1a2e; color: #fff; border: none; border-radius: 6px; font-size: .75rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+    .refresh-btn:hover { background: #2d3748; }
+    .refresh-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .spin { display: inline-block; }
+    .spin.active { animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .manual-toggle { font-size: .7rem; color: #a0aec0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .manual-upload { background: #f7fafc; border-bottom: 1px solid #e2e8f0; padding: 8px 28px; display: none; gap: 24px; align-items: center; flex-wrap: wrap; }
+    .manual-upload.open { display: flex; }
     .upload-group { display: flex; flex-direction: column; gap: 2px; }
     .upload-group label { font-size: .72rem; font-weight: 700; color: #4a5568; }
     .upload-group .sub { font-size: .66rem; color: #a0aec0; }
@@ -114,15 +131,36 @@
   </div>
 </header>
 
-<div class="upload-bar">
+<div class="data-bar">
+  <div class="data-source">
+    <span class="ds-label">Inventory</span>
+    <div class="ds-status">
+      <span class="ds-dot" id="inv-dot"></span>
+      <span class="ds-text" id="inv-status">Not loaded</span>
+    </div>
+  </div>
+  <div class="data-source">
+    <span class="ds-label">FEOOS</span>
+    <div class="ds-status">
+      <span class="ds-dot" id="feoos-dot"></span>
+      <span class="ds-text" id="feoos-status">Not loaded</span>
+    </div>
+  </div>
+  <span class="manual-toggle" id="manual-toggle">manual override</span>
+  <button class="refresh-btn" id="refresh-btn" onclick="fetchAll()">
+    <span class="spin" id="spin-icon">↻</span> Refresh Data
+  </button>
+</div>
+
+<div class="manual-upload" id="manual-upload">
   <div class="upload-group">
-    <label>Inventory / Warehouse Dump</label>
-    <span class="sub">Combined Models Dump CSV</span>
+    <label>Inventory CSV (override)</label>
+    <span class="sub">Replaces live Google Sheet data</span>
     <input type="file" id="inv-file" accept=".csv" />
   </div>
   <div class="upload-group">
-    <label>FEOOS Data</label>
-    <span class="sub">Trailing 14d customer OOS events</span>
+    <label>FEOOS CSV (override)</label>
+    <span class="sub">Replaces live Google Sheet data</span>
     <input type="file" id="feoos-file" accept=".csv" />
   </div>
 </div>
@@ -597,7 +635,65 @@ function render() {
   renderOOS(rows, feIdx);
 }
 
-// ─── File uploads ─────────────────────────────────────────────────────────────
+// ─── Google Sheets sources ────────────────────────────────────────────────────
+const SOURCES = {
+  inv:   'https://docs.google.com/spreadsheets/d/1mVIKPjyItZRAl3ucuogcfpxArH5pShDs9NRIoe-sU4c/export?format=csv&gid=1794766977',
+  feoos: 'https://docs.google.com/spreadsheets/d/1i5jcYp1cLO2VpOPj8-btZ9XI8csGgQAa2VQ5iB_scxA/export?format=csv&gid=0',
+};
+
+function setStatus(key, state, msg) {
+  const dot  = document.getElementById(`${key}-dot`);
+  const text = document.getElementById(`${key}-status`);
+  dot.className  = 'ds-dot' + (state==='ok' ? ' ok' : state==='err' ? ' err' : state==='loading' ? ' loading' : '');
+  text.textContent = msg;
+}
+
+async function fetchAll() {
+  const btn  = document.getElementById('refresh-btn');
+  const spin = document.getElementById('spin-icon');
+  btn.disabled = true;
+  spin.classList.add('active');
+
+  await Promise.all([
+    fetchSource('inv'),
+    fetchSource('feoos'),
+  ]);
+
+  btn.disabled = false;
+  spin.classList.remove('active');
+  render();
+}
+
+async function fetchSource(key) {
+  setStatus(key, 'loading', 'Loading…');
+  try {
+    const res = await fetch(SOURCES[key]);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const rows = parseCSV(text);
+    if (key === 'inv') {
+      state.rows = rows;
+      populateWhFilter(state.rows);
+      state.warehouse = 'ALL';
+      document.getElementById('wh-select').value = 'ALL';
+      const d = rows[0]?.order_date || new Date().toISOString().slice(0,10);
+      document.getElementById('last-updated').textContent = 'Inventory as of: ' + d;
+      setStatus('inv', 'ok', `${rows.length.toLocaleString()} rows · ${d}`);
+    } else {
+      state.feoos = rows;
+      setStatus('feoos', 'ok', `${rows.length.toLocaleString()} events loaded`);
+    }
+  } catch (e) {
+    setStatus(key, 'err', 'Failed — check sharing settings');
+    console.error(key, e);
+  }
+}
+
+// ─── Manual override uploads ──────────────────────────────────────────────────
+document.getElementById('manual-toggle').addEventListener('click', () => {
+  document.getElementById('manual-upload').classList.toggle('open');
+});
+
 document.getElementById('inv-file').addEventListener('change', e => {
   const f=e.target.files[0]; if(!f) return;
   f.text().then(t => {
@@ -607,17 +703,22 @@ document.getElementById('inv-file').addEventListener('change', e => {
     document.getElementById('wh-select').value='ALL';
     const d = state.rows[0]?.order_date || new Date().toISOString().slice(0,10);
     document.getElementById('last-updated').textContent = 'Inventory as of: '+d;
+    setStatus('inv', 'ok', `${state.rows.length.toLocaleString()} rows (manual)`);
     render();
   });
 });
 
 document.getElementById('feoos-file').addEventListener('change', e => {
   const f=e.target.files[0]; if(!f) return;
-  f.text().then(t => { state.feoos=parseCSV(t); render(); });
+  f.text().then(t => {
+    state.feoos = parseCSV(t);
+    setStatus('feoos', 'ok', `${state.feoos.length.toLocaleString()} events (manual)`);
+    render();
+  });
 });
 
-// ─── Init ─────────────────────────────────────────────────────────────────────
-render();
+// ─── Init — auto-fetch on load ────────────────────────────────────────────────
+fetchAll();
 </script>
 </body>
 </html>
