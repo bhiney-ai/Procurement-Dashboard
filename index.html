@@ -296,6 +296,30 @@
     </table>
   </div>
 
+  <!-- Coverage Gap -->
+  <div class="table-card">
+    <h2>⚠️ On-Hand Won't Cover Until Next PO <span class="pill-count pill-orange" id="gap-count"></span></h2>
+    <p style="font-size:.72rem;color:#a0aec0;margin-bottom:10px;">Items where current on-hand (<code>est_days_of_cover</code>) runs out before <code>next_po_delivery_date</code> — will go OOS before replenishment arrives.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Category</th>
+          <th>Vendor</th>
+          <th>Warehouse</th>
+          <th>On-Hand DoC</th>
+          <th>Next PO Delivery</th>
+          <th>Days Until PO</th>
+          <th>Gap (OOS Days)</th>
+          <th>Net DoC (Pipeline)</th>
+          <th>FEOOS (14d)</th>
+          <th>Consumption/Day</th>
+        </tr>
+      </thead>
+      <tbody id="gap-tbody"></tbody>
+    </table>
+  </div>
+
 </div>
 
 <script>
@@ -622,6 +646,58 @@ function renderOOS(rows, feIdx) {
   }), 10);
 }
 
+// ─── Coverage Gap table ───────────────────────────────────────────────────────
+function renderCoverageGap(rows, feIdx) {
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  const flagged = rows
+    .filter(r => {
+      if (!r.next_po_delivery_date) return false;
+      const estDoc      = num(r.est_days_of_cover);
+      const daysUntilPo = Math.ceil((new Date(r.next_po_delivery_date) - today) / 86400000);
+      return daysUntilPo > 0 && estDoc < daysUntilPo && num(r.consumption_rate) > 0;
+    })
+    .map(r => {
+      const daysUntilPo = Math.ceil((new Date(r.next_po_delivery_date) - today) / 86400000);
+      const estDoc      = num(r.est_days_of_cover);
+      return { ...r, estDoc, daysUntilPo, gap: daysUntilPo - estDoc };
+    })
+    .sort((a, b) => b.gap - a.gap);
+
+  document.getElementById('gap-count').textContent = flagged.length;
+  const tbody = 'gap-tbody';
+
+  if (!flagged.length) {
+    document.getElementById(tbody).innerHTML =
+      '<tr><td colspan="11" class="empty">No items at risk — all on-hand stock covers until next PO</td></tr>';
+    return;
+  }
+
+  function gapBadge(days) {
+    if (days >= 7)  return `<span class="badge badge-crit">${days}d gap</span>`;
+    if (days >= 3)  return `<span class="badge badge-high">${days}d gap</span>`;
+    return `<span class="badge badge-watch">${days}d gap</span>`;
+  }
+
+  renderTable(tbody, flagged.map(r => {
+    const fe     = feooLookup(feIdx, r.warehouse_name, r.item_name);
+    const feCell = fe ? `<strong>${fe.qty.toFixed(0)}</strong>` : (state.feoos.length ? '0' : '—');
+    return `<tr>
+      <td class="trunc" title="${r.item_name}"><strong>${r.item_name}</strong></td>
+      <td>${topCat(r.item_class)}</td>
+      <td>${r.vendor_name}</td>
+      <td><span class="badge badge-blue">${r.warehouse_name}</span></td>
+      <td>${docBadge(r.estDoc)}</td>
+      <td>${r.next_po_delivery_date}</td>
+      <td>${r.daysUntilPo}d</td>
+      <td>${gapBadge(r.gap)}</td>
+      <td>${docBadge(r.net_days_of_cover)}</td>
+      <td>${feCell}</td>
+      <td>${num(r.consumption_rate).toFixed(2)}/day</td>
+    </tr>`;
+  }), 11);
+}
+
 // ─── Warehouse multi-select ───────────────────────────────────────────────────
 function populateWhFilter(rows) {
   const whs = [...new Set(rows.map(r=>r.warehouse_name).filter(Boolean))].sort();
@@ -702,6 +778,7 @@ function render() {
   buildDocChart(rows);
   renderPastDue(rows, feIdx);
   renderOOS(rows, feIdx);
+  renderCoverageGap(rows, feIdx);
 }
 
 // ─── Google Sheets sources ────────────────────────────────────────────────────
