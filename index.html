@@ -479,23 +479,32 @@ function feooFiltered() {
 // ─── KPI Cache (localStorage) ─────────────────────────────────────────────────
 const KPI_CACHE_KEY = 'procurement_kpi_v1';
 
+function whCacheKey() {
+  if (!state.warehouses.size) return 'ALL';
+  return [...state.warehouses].sort().join(',');
+}
+
 function loadKpiCache() {
   try { return JSON.parse(localStorage.getItem(KPI_CACHE_KEY)) || {}; }
   catch { return {}; }
 }
 
 function updateKpiCache(today, values) {
-  const cache = loadKpiCache();
+  const cache  = loadKpiCache();
+  const whKey  = whCacheKey();
+  const bucket = cache[whKey] || {};
+
   // First load of a new day — roll current → previous
-  if (cache.current && cache.current.date !== today) {
-    cache.previous = cache.current;
+  if (bucket.current && bucket.current.date !== today) {
+    bucket.previous = bucket.current;
   }
-  // Only write current once per day (don't overwrite with mid-day refreshes)
-  if (!cache.current || cache.current.date !== today) {
-    cache.current = { date: today, ...values };
+  // Only write current once per day
+  if (!bucket.current || bucket.current.date !== today) {
+    bucket.current = { date: today, ...values };
   }
+  cache[whKey] = bucket;
   localStorage.setItem(KPI_CACHE_KEY, JSON.stringify(cache));
-  return cache.previous || null;
+  return bucket.previous || null;
 }
 
 function renderDelta(elId, current, previous, higherIsBetter) {
