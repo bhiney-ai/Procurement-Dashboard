@@ -398,11 +398,7 @@
           <th>Item</th>
           <th>Warehouse</th>
           <th>Vendor</th>
-          <th>Will Expire (expired − unsellable)</th>
-          <th>Min Exp. Date</th>
-          <th>Min Exp. Qty</th>
-          <th>Unsellable After</th>
-          <th>Days Sellable</th>
+          <th>Expiring Qty</th>
           <th>Best Transfer WH</th>
           <th>Transfer Net DoC</th>
           <th>DoC Added by Transfer</th>
@@ -1161,7 +1157,7 @@ function renderExpirationRisk(rows) {
 
   if (!flagged.length) {
     document.getElementById('expiry-tbody').innerHTML =
-      '<tr><td colspan="11" class="empty">No expiration risk items</td></tr>';
+      '<tr><td colspan="7" class="empty">No expiration risk items</td></tr>';
     return;
   }
 
@@ -1205,15 +1201,11 @@ function renderExpirationRisk(rows) {
       <td><span class="badge badge-blue">${r.warehouse_name}</span></td>
       <td>${r.vendor_name || '—'}</td>
       <td>${willExpireCell}</td>
-      <td>${r.min_expiration_date || '—'}</td>
-      <td>${r.minExpQty > 0 ? r.minExpQty.toFixed(0) : '—'}</td>
-      <td>${unsellableCell}</td>
-      <td>${sellBadge(r.daysOfSellability)}</td>
       <td>${transferCell}</td>
       <td>${curDocCell}</td>
       <td>${addedDocCell}</td>
     </tr>`;
-  }), 11);
+  }), 7);
 }
 
 // ─── Warehouse groups ─────────────────────────────────────────────────────────
