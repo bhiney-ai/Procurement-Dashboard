@@ -365,16 +365,18 @@ let charts = {};
 
 // ─── Expand / collapse ────────────────────────────────────────────────────────
 const PAGE = 20;
+const PAGE_SIZES = { 'oos-tbody': 10 }; // per-table overrides
 const expanded = {};   // tbodyId -> bool
 const tableRows = {};  // tbodyId -> array of html strings
 
 function renderTable(tbodyId, htmlRows, colSpan) {
   tableRows[tbodyId] = htmlRows;
   const isExp = expanded[tbodyId] || false;
-  const visible = isExp ? htmlRows : htmlRows.slice(0, PAGE);
+  const pageSize = PAGE_SIZES[tbodyId] ?? PAGE;
+  const visible = isExp ? htmlRows : htmlRows.slice(0, pageSize);
   let html = visible.join('');
-  if (htmlRows.length > PAGE) {
-    const more = htmlRows.length - PAGE;
+  if (htmlRows.length > pageSize) {
+    const more = htmlRows.length - pageSize;
     html += `<tr class="expand-row"><td colspan="${colSpan}">
       <button class="expand-btn" data-tbody="${tbodyId}">
         ${isExp ? '▲ Show less' : `▼ Show all ${htmlRows.length} rows — ${more} more`}
@@ -388,7 +390,8 @@ document.addEventListener('click', e => {
   if (!btn) return;
   const id = btn.dataset.tbody;
   expanded[id] = !expanded[id];
-  renderTable(id, tableRows[id] || [], btn.closest('table').querySelectorAll('th').length);
+  const cols = btn.closest('table').querySelectorAll('th').length;
+  renderTable(id, tableRows[id] || [], cols);
 });
 
 // ─── CSV parser (handles quoted fields) ───────────────────────────────────────
