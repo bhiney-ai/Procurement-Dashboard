@@ -364,6 +364,28 @@
     </table>
   </div>
 
+  <!-- Overpurchased POs -->
+  <div class="table-card">
+    <h2>📦 PO Quantities Exceeding 100 Days of Coverage <span class="pill-count pill-orange" id="overpurchased-count"></span></h2>
+    <p style="font-size:.72rem;color:#a0aec0;margin-bottom:10px;">Open PO lines where ordered quantity ÷ daily consumption rate exceeds 100 days of supply. Excludes received and closed orders.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Warehouse</th>
+          <th>Vendor</th>
+          <th>PO Number</th>
+          <th>Expected Date</th>
+          <th>PO Qty</th>
+          <th>Consumption/Day</th>
+          <th>PO Days of Cover</th>
+          <th>FEOOS (14d)</th>
+        </tr>
+      </thead>
+      <tbody id="overpurchased-tbody"></tbody>
+    </table>
+  </div>
+
 </div>
 
 <script>
@@ -983,6 +1005,74 @@ function renderCoverageGap(rows, feIdx) {
   }), 11);
 }
 
+// ─── Overpurchased POs (>100 days of cover) ───────────────────────────────────
+function renderOverpurchased(feIdx) {
+  if (!state.pos.length) {
+    document.getElementById('overpurchased-tbody').innerHTML =
+      '<tr><td colspan="9" class="empty">No PO data loaded</td></tr>';
+    document.getElementById('overpurchased-count').textContent = '';
+    return;
+  }
+
+  // Build inventory lookup: warehouse::normName -> row (for consumption_rate)
+  const invIdx = {};
+  filtered().forEach(r => {
+    const key = (r.warehouse_name||'') + '::' + normName(r.item_name);
+    invIdx[key] = r;
+  });
+
+  // Open PO lines: not received, not closed
+  const openPos = posFiltered().filter(p => {
+    if (p.shipment_received_utc_date && p.shipment_received_utc_date.trim()) return false;
+    const ordered   = num(p.purchase_order_units);
+    const received  = num(p.quantity_received_pu);
+    return ordered > 0 && received < ordered;
+  });
+
+  const flagged = openPos.flatMap(p => {
+    const key         = (p.warehouse_name||'') + '::' + normName(p.item_name);
+    const inv         = invIdx[key];
+    const consumption = inv ? num(inv.consumption_rate) : 0;
+    if (consumption <= 0) return [];                       // can't calculate DoC without rate
+    const poQty       = num(p.purchase_order_units);
+    const poDaysOfCover = poQty / consumption;
+    if (poDaysOfCover <= 100) return [];
+    return [{ ...p, consumption, poDaysOfCover }];
+  }).sort((a, b) => b.poDaysOfCover - a.poDaysOfCover);
+
+  document.getElementById('overpurchased-count').textContent = flagged.length;
+
+  if (!flagged.length) {
+    document.getElementById('overpurchased-tbody').innerHTML =
+      '<tr><td colspan="9" class="empty">No open PO lines exceeding 100 days of coverage</td></tr>';
+    return;
+  }
+
+  function docCoverBadge(d) {
+    const v = Math.round(d);
+    if (v > 365) return `<span class="badge badge-crit">${v}d</span>`;
+    if (v > 200) return `<span class="badge badge-high">${v}d</span>`;
+    if (v > 100) return `<span class="badge badge-watch">${v}d</span>`;
+    return `<span class="badge badge-green">${v}d</span>`;
+  }
+
+  renderTable('overpurchased-tbody', flagged.map(p => {
+    const fe     = feooLookup(feIdx, p.warehouse_name, p.item_name);
+    const feCell = fe ? `<strong>${fe.qty.toFixed(0)}</strong>` : (state.feoos.length ? '0' : '—');
+    return `<tr>
+      <td class="trunc" title="${p.item_name}"><strong>${p.item_name}</strong></td>
+      <td><span class="badge badge-blue">${p.warehouse_name}</span></td>
+      <td>${vendorName(p.full_vendor_name)}</td>
+      <td style="font-family:monospace;font-size:.73rem">${p.purchase_order_number}</td>
+      <td>${p.expected_receipt_date_date || '—'}</td>
+      <td>${num(p.purchase_order_units).toFixed(0)} ${p.purchase_unit_name||''}</td>
+      <td>${p.consumption.toFixed(2)}/day</td>
+      <td>${docCoverBadge(p.poDaysOfCover)}</td>
+      <td>${feCell}</td>
+    </tr>`;
+  }), 9);
+}
+
 // ─── Warehouse groups ─────────────────────────────────────────────────────────
 const WH_GROUPS = [
   { name: 'Christian Whitney', codes: ['DCA', 'MDT', 'SDF'] },
@@ -1138,6 +1228,7 @@ function render() {
   renderOOS(rows, feIdx);
   renderPo14(feIdx);
   renderCoverageGap(rows, feIdx);
+  renderOverpurchased(feIdx);
 }
 
 
