@@ -19,12 +19,16 @@
     .wh-btn:hover { background: #3a4a5c; }
     .wh-btn .chevron { font-size: .6rem; transition: transform .15s; }
     .wh-btn.open .chevron { transform: rotate(180deg); }
-    .wh-dropdown { display: none; position: absolute; top: calc(100% + 6px); right: 0; background: #1e2a3a; border: 1px solid #4a5568; border-radius: 7px; min-width: 180px; box-shadow: 0 4px 16px rgba(0,0,0,.3); z-index: 100; overflow: hidden; }
+    .wh-dropdown { display: none; position: absolute; top: calc(100% + 6px); right: 0; background: #1e2a3a; border: 1px solid #4a5568; border-radius: 7px; min-width: 210px; max-height: 420px; overflow-y: auto; box-shadow: 0 4px 16px rgba(0,0,0,.3); z-index: 100; }
     .wh-dropdown.open { display: block; }
-    .wh-option { display: flex; align-items: center; gap: 8px; padding: 7px 12px; cursor: pointer; font-size: .78rem; color: #cbd5e0; transition: background .1s; }
+    .wh-option { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 22px; cursor: pointer; font-size: .76rem; color: #cbd5e0; transition: background .1s; }
     .wh-option:hover { background: #2d3748; }
     .wh-option input[type="checkbox"] { accent-color: #667eea; width: 13px; height: 13px; cursor: pointer; }
-    .wh-option.all-opt { border-bottom: 1px solid #4a5568; color: #fff; font-weight: 600; }
+    .wh-option.all-opt { border-bottom: 1px solid #4a5568; color: #fff; font-weight: 600; padding-left: 12px; }
+    .wh-group-hdr { display: flex; align-items: center; justify-content: space-between; padding: 7px 12px 4px; font-size: .68rem; font-weight: 700; color: #667eea; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; border-top: 1px solid #2d3748; }
+    .wh-group-hdr:hover { background: #253347; }
+    .wh-group-hdr:first-child { border-top: none; }
+    .wh-group-hdr .grp-hint { font-size: .6rem; color: #4a5568; font-weight: 400; text-transform: none; letter-spacing: 0; }
     #last-updated { font-size: .74rem; color: #8892a4; }
 
     .data-bar { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 9px 28px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
@@ -859,38 +863,101 @@ function renderCoverageGap(rows, feIdx) {
   }), 11);
 }
 
+// ─── Warehouse groups ─────────────────────────────────────────────────────────
+const WH_GROUPS = [
+  { name: 'Christian Whitney', codes: ['DCA', 'MDT', 'SDF'] },
+  { name: 'Mikey Shutta',      codes: ['EWR', 'PWM'] },
+  { name: 'Jason Eidom',       codes: ['CLT', 'ATL', 'MIA'] },
+  { name: 'Condra Garner',     codes: ['DFW', 'AUS', 'HOU'] },
+  { name: 'John Hoban',        codes: ['DEN', 'LAX', 'BLI'] },
+  { name: 'Mitzy Mojaica',     codes: ['PDX', 'SEA', 'SMF'] },
+  { name: 'Tim Hibbs',         codes: ['BNA'] },
+];
+
+function whGroup(whName) {
+  return WH_GROUPS.find(g => g.codes.some(c => whName.startsWith(c))) || null;
+}
+
 // ─── Warehouse multi-select ───────────────────────────────────────────────────
 function populateWhFilter(rows) {
   const whPattern = /^[A-Z0-9]{2,8}(-[A-Z0-9]+)?$/;
   const whs = [...new Set(rows.map(r=>r.warehouse_name).filter(w => w && whPattern.test(w.trim())))].sort();
   const dropdown = document.getElementById('wh-dropdown');
-  // Remove old warehouse options (keep "All" at top)
-  dropdown.querySelectorAll('.wh-wh').forEach(el => el.remove());
+  dropdown.querySelectorAll('.wh-wh, .wh-group-hdr').forEach(el => el.remove());
+
+  // Bucket warehouses into groups
+  const grouped = {};
+  const ungrouped = [];
   whs.forEach(w => {
-    const lbl = document.createElement('label');
-    lbl.className = 'wh-option wh-wh';
-    lbl.innerHTML = `<input type="checkbox" class="wh-cb" value="${w}" /> ${w}`;
-    lbl.querySelector('input').addEventListener('change', onWhChange);
-    dropdown.appendChild(lbl);
+    const g = whGroup(w);
+    if (g) { (grouped[g.name] = grouped[g.name] || []).push(w); }
+    else    { ungrouped.push(w); }
   });
+
+  // Render in group order
+  WH_GROUPS.forEach(g => {
+    const members = grouped[g.name];
+    if (!members?.length) return;
+
+    // Group header — clicking selects all in this group
+    const hdr = document.createElement('div');
+    hdr.className = 'wh-group-hdr wh-wh';
+    hdr.dataset.group = g.name;
+    hdr.innerHTML = `<span>${g.name}</span><span class="grp-hint">select all</span>`;
+    hdr.addEventListener('click', () => selectGroup(g.name));
+    dropdown.appendChild(hdr);
+
+    members.forEach(w => {
+      const lbl = document.createElement('label');
+      lbl.className = 'wh-option wh-wh';
+      lbl.dataset.group = g.name;
+      lbl.innerHTML = `<input type="checkbox" class="wh-cb" value="${w}" /> ${w}`;
+      lbl.querySelector('input').addEventListener('change', onWhChange);
+      dropdown.appendChild(lbl);
+    });
+  });
+
+  // Ungrouped at bottom
+  if (ungrouped.length) {
+    const hdr = document.createElement('div');
+    hdr.className = 'wh-group-hdr wh-wh';
+    hdr.innerHTML = `<span>Other</span>`;
+    dropdown.appendChild(hdr);
+    ungrouped.forEach(w => {
+      const lbl = document.createElement('label');
+      lbl.className = 'wh-option wh-wh';
+      lbl.innerHTML = `<input type="checkbox" class="wh-cb" value="${w}" /> ${w}`;
+      lbl.querySelector('input').addEventListener('change', onWhChange);
+      dropdown.appendChild(lbl);
+    });
+  }
+
   state.warehouses = new Set();
   updateWhBtn();
+}
+
+function selectGroup(groupName) {
+  const allCb = document.getElementById('wh-all');
+  allCb.checked = false;
+  // Uncheck all, then check just this group
+  document.querySelectorAll('.wh-cb').forEach(c => { c.checked = false; });
+  document.querySelectorAll(`label.wh-wh[data-group="${groupName}"] .wh-cb`).forEach(c => { c.checked = true; });
+  state.warehouses = new Set([...document.querySelectorAll('.wh-cb:checked')].map(c => c.value));
+  if (!state.warehouses.size) { allCb.checked = true; }
+  updateWhBtn();
+  render();
 }
 
 function onWhChange() {
   const allCb = document.getElementById('wh-all');
   const cbs   = [...document.querySelectorAll('.wh-cb')];
   const checked = cbs.filter(c=>c.checked).map(c=>c.value);
-
   if (this === allCb) {
-    // Toggled "All" — uncheck individuals
     cbs.forEach(c => { if (c !== allCb) c.checked = false; });
     state.warehouses = new Set();
   } else {
-    // Individual toggle — uncheck "All"
     allCb.checked = false;
     state.warehouses = new Set(checked.filter(v => v !== 'ALL'));
-    // If nothing checked, revert to All
     if (!state.warehouses.size) { allCb.checked = true; }
   }
   updateWhBtn();
@@ -900,13 +967,22 @@ function onWhChange() {
 function updateWhBtn() {
   const btn = document.getElementById('wh-btn');
   const sel = [...state.warehouses];
-  if (!sel.length) {
-    btn.childNodes[0].textContent = 'All Warehouses ';
-  } else if (sel.length === 1) {
-    btn.childNodes[0].textContent = sel[0] + ' ';
-  } else {
-    btn.childNodes[0].textContent = `${sel[0]} +${sel.length - 1} `;
+
+  // Check if selection exactly matches a group
+  if (sel.length > 1) {
+    const matchedGroup = WH_GROUPS.find(g => {
+      const groupWhs = [...document.querySelectorAll(`label.wh-wh[data-group="${g.name}"] .wh-cb`)].map(c=>c.value);
+      return groupWhs.length && groupWhs.length === sel.length && groupWhs.every(w => state.warehouses.has(w));
+    });
+    if (matchedGroup) {
+      btn.childNodes[0].textContent = matchedGroup.name + ' ';
+      return;
+    }
   }
+
+  if (!sel.length)       btn.childNodes[0].textContent = 'All Warehouses ';
+  else if (sel.length === 1) btn.childNodes[0].textContent = sel[0] + ' ';
+  else                   btn.childNodes[0].textContent = `${sel[0]} +${sel.length - 1} `;
 }
 
 // Toggle dropdown open/close
