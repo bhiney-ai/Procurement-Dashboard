@@ -398,7 +398,7 @@
           <th>Item</th>
           <th>Warehouse</th>
           <th>Vendor</th>
-          <th>Expired Qty</th>
+          <th>Will Expire (expired − unsellable)</th>
           <th>Min Exp. Date</th>
           <th>Min Exp. Qty</th>
           <th>Unsellable After</th>
@@ -1108,13 +1108,15 @@ function renderExpirationRisk(rows) {
     (itemIdx[key] = itemIdx[key] || []).push(r);
   });
 
-  // Filter: has any expired qty OR has min_expiration_quantity > 0
+  // Filter: expired - unsellable > 0  (will expire, hasn't hit unsellable threshold yet)
   const atRisk = rows.filter(r =>
-    num(r.expired) > 0 || num(r.min_expiration_quantity) > 0
+    (num(r.expired) - num(r.unsellable)) > 0 || num(r.min_expiration_quantity) > 0
   );
 
   const flagged = atRisk.map(r => {
     const expired        = num(r.expired);
+    const unsellable     = num(r.unsellable);
+    const willExpire     = Math.max(0, expired - unsellable);  // at-risk, not yet unsellable
     const minExpQty      = num(r.min_expiration_quantity);
     const minShelfLife   = num(r.minimum_deliverable_shelf_life); // days customer requires
 
@@ -1132,7 +1134,7 @@ function renderExpirationRisk(rows) {
     // Best transfer warehouse: same item, different wh, in-catalog, has consumption, lowest net DoC
     // Only suggest if stock would still be sellable (daysOfSellability > 0)
     let transferWh = null, transferCurDoc = null, transferDocAdded = null;
-    if (minExpQty > 0 && daysOfSellability > 0) {
+    if (willExpire > 0 && daysOfSellability > 0) {
       const candidates = (itemIdx[normName(r.item_name)] || [])
         .filter(c =>
           c.warehouse_name !== r.warehouse_name &&
@@ -1146,13 +1148,14 @@ function renderExpirationRisk(rows) {
         const consumption  = num(best.consumption_rate);
         transferWh         = best.warehouse_name;
         transferCurDoc     = num(best.net_days_of_cover);
-        // DoC added = qty / consumption, but capped at days of sellability
-        transferDocAdded   = Math.min(minExpQty / consumption, daysOfSellability);
+        // DoC added = will-expire qty / consumption, capped at days of sellability
+        transferDocAdded   = Math.min(willExpire / consumption, daysOfSellability);
       }
     }
 
-    return { ...r, expired, minExpQty, minShelfLife, unsellableDate, daysOfSellability, transferWh, transferCurDoc, transferDocAdded };
-  }).sort((a, b) => b.expired - a.expired);
+    return { ...r, expired, unsellable, willExpire, minExpQty, minShelfLife, unsellableDate, daysOfSellability, transferWh, transferCurDoc, transferDocAdded };
+  }).filter(r => r.willExpire > 0 || r.minExpQty > 0)
+    .sort((a, b) => b.willExpire - a.willExpire);
 
   document.getElementById('expiry-count').textContent = flagged.length;
 
@@ -1177,8 +1180,8 @@ function renderExpirationRisk(rows) {
   }
 
   renderTable('expiry-tbody', flagged.map(r => {
-    const expiredCell    = r.expired > 0
-      ? `<span class="badge badge-crit">${r.expired.toFixed(0)}</span>`
+    const willExpireCell = r.willExpire > 0
+      ? `<span class="badge badge-crit">${r.willExpire.toFixed(0)}</span>`
       : `<span class="badge badge-gray">0</span>`;
 
     const unsellableCell = r.unsellableDate ? fmtDate(r.unsellableDate) : '—';
@@ -1201,7 +1204,7 @@ function renderExpirationRisk(rows) {
       <td class="trunc" title="${r.item_name}"><strong>${r.item_name}</strong></td>
       <td><span class="badge badge-blue">${r.warehouse_name}</span></td>
       <td>${r.vendor_name || '—'}</td>
-      <td>${expiredCell}</td>
+      <td>${willExpireCell}</td>
       <td>${r.min_expiration_date || '—'}</td>
       <td>${r.minExpQty > 0 ? r.minExpQty.toFixed(0) : '—'}</td>
       <td>${unsellableCell}</td>
