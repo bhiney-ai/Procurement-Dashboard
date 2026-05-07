@@ -1235,13 +1235,11 @@ function renderExpirationRisk(rows) {
     (itemIdx[key] = itemIdx[key] || []).push(r);
   });
 
-  // Filter: exclude known cold-storage states; include blank/unclassified
-  const COLD_STATES = /refrigerat|frozen|chilled|cold/i;
-  const atRisk = rows.filter(r => {
-    const refState = (r.refrigeration_state || '').trim();
-    if (refState && COLD_STATES.test(refState)) return false;
-    return (num(r.expired) - num(r.unsellable)) > 0;
-  });
+  // Only room-temperature items; filter on expired > 0 (willExpire shown in column)
+  const atRisk = rows.filter(r =>
+    (r.refrigeration_state || '').trim() === 'Room Temperature' &&
+    num(r.expired) > 0
+  );
 
   const flagged = atRisk.map(r => {
     const expired        = num(r.expired);
@@ -1291,8 +1289,7 @@ function renderExpirationRisk(rows) {
     }
 
     return { ...r, expired, unsellable, willExpire, minExpQty, minShelfLife, unsellableDate, daysOfSellability, transferWh, transferCurDoc, transferDocAdded };
-  }).filter(r => r.willExpire > 0)
-    .sort((a, b) => b.willExpire - a.willExpire);
+  }).sort((a, b) => b.expired - a.expired);
 
   document.getElementById('expiry-count').textContent = flagged.length;
 
