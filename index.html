@@ -388,6 +388,30 @@
     </table>
   </div>
 
+  <!-- Expiration Risk -->
+  <div class="table-card">
+    <h2>🕒 Expiration Risk <span class="pill-count pill-orange" id="expiry-count"></span></h2>
+    <p style="font-size:.72rem;color:#a0aec0;margin-bottom:10px;">Items with expired or near-expiry stock at current run rate. <strong>Unsellable After</strong> = min expiration date − minimum deliverable shelf life. Best transfer warehouse is the same-item site with the lowest net DoC where the stock would still be sellable.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Warehouse</th>
+          <th>Vendor</th>
+          <th>Expired Qty</th>
+          <th>Min Exp. Date</th>
+          <th>Min Exp. Qty</th>
+          <th>Unsellable After</th>
+          <th>Days Sellable</th>
+          <th>Best Transfer WH</th>
+          <th>Transfer Net DoC</th>
+          <th>DoC Added by Transfer</th>
+        </tr>
+      </thead>
+      <tbody id="expiry-tbody"></tbody>
+    </table>
+  </div>
+
 </div>
 
 <script>
@@ -397,7 +421,7 @@ let charts = {};
 
 // ─── Expand / collapse ────────────────────────────────────────────────────────
 const PAGE = 20;
-const PAGE_SIZES = { 'pastdue-tbody': 10, 'oos-tbody': 10, 'po14-tbody': 10, 'gap-tbody': 10, 'overpurchased-tbody': 10 };
+const PAGE_SIZES = { 'pastdue-tbody': 10, 'oos-tbody': 10, 'po14-tbody': 10, 'gap-tbody': 10, 'overpurchased-tbody': 10, 'expiry-tbody': 10 };
 const expanded = {};   // tbodyId -> bool
 const tableRows = {};  // tbodyId -> array of html strings
 
@@ -1071,6 +1095,124 @@ function renderOverpurchased(feIdx) {
   }), 9);
 }
 
+// ─── Expiration Risk table ────────────────────────────────────────────────────
+function renderExpirationRisk(rows) {
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  // Build a cross-warehouse index: normName(item) -> [rows]
+  // Use the full unfiltered warehouse set so transfer candidates aren't artificially removed
+  const allRows = state.rows.filter(r => r.warehouse_name && whPattern.test(r.warehouse_name.trim()) && !WH_EXCLUDE.has(r.warehouse_name));
+  const itemIdx = {};
+  allRows.forEach(r => {
+    const key = normName(r.item_name);
+    (itemIdx[key] = itemIdx[key] || []).push(r);
+  });
+
+  // Filter: has any expired qty OR has min_expiration_quantity > 0
+  const atRisk = rows.filter(r =>
+    num(r.expired) > 0 || num(r.min_expiration_quantity) > 0
+  );
+
+  const flagged = atRisk.map(r => {
+    const expired        = num(r.expired);
+    const minExpQty      = num(r.min_expiration_quantity);
+    const minShelfLife   = num(r.minimum_deliverable_shelf_life); // days customer requires
+
+    // Unsellable after = min_expiration_date - minimum_deliverable_shelf_life
+    let unsellableDate = null, daysOfSellability = null;
+    if (r.min_expiration_date && r.min_expiration_date.trim()) {
+      const expDate = new Date(r.min_expiration_date);
+      if (!isNaN(expDate)) {
+        unsellableDate = new Date(expDate);
+        if (minShelfLife > 0) unsellableDate.setDate(unsellableDate.getDate() - minShelfLife);
+        daysOfSellability = Math.ceil((unsellableDate - today) / 86400000);
+      }
+    }
+
+    // Best transfer warehouse: same item, different wh, in-catalog, has consumption, lowest net DoC
+    // Only suggest if stock would still be sellable (daysOfSellability > 0)
+    let transferWh = null, transferCurDoc = null, transferDocAdded = null;
+    if (minExpQty > 0 && daysOfSellability > 0) {
+      const candidates = (itemIdx[normName(r.item_name)] || [])
+        .filter(c =>
+          c.warehouse_name !== r.warehouse_name &&
+          bool(c.in_catalog) &&
+          num(c.consumption_rate) > 0
+        )
+        .sort((a, b) => num(a.net_days_of_cover) - num(b.net_days_of_cover));
+
+      if (candidates.length) {
+        const best         = candidates[0];
+        const consumption  = num(best.consumption_rate);
+        transferWh         = best.warehouse_name;
+        transferCurDoc     = num(best.net_days_of_cover);
+        // DoC added = qty / consumption, but capped at days of sellability
+        transferDocAdded   = Math.min(minExpQty / consumption, daysOfSellability);
+      }
+    }
+
+    return { ...r, expired, minExpQty, minShelfLife, unsellableDate, daysOfSellability, transferWh, transferCurDoc, transferDocAdded };
+  }).sort((a, b) => b.expired - a.expired);
+
+  document.getElementById('expiry-count').textContent = flagged.length;
+
+  if (!flagged.length) {
+    document.getElementById('expiry-tbody').innerHTML =
+      '<tr><td colspan="11" class="empty">No expiration risk items</td></tr>';
+    return;
+  }
+
+  function sellBadge(d) {
+    if (d == null)  return `<span class="badge badge-gray">—</span>`;
+    if (d <= 0)     return `<span class="badge badge-crit">Unsellable</span>`;
+    if (d <= 7)     return `<span class="badge badge-crit">${d}d</span>`;
+    if (d <= 30)    return `<span class="badge badge-high">${d}d</span>`;
+    if (d <= 60)    return `<span class="badge badge-watch">${d}d</span>`;
+    return `<span class="badge badge-green">${d}d</span>`;
+  }
+
+  function fmtDate(d) {
+    if (!d) return '—';
+    return d.toISOString().slice(0, 10);
+  }
+
+  renderTable('expiry-tbody', flagged.map(r => {
+    const expiredCell    = r.expired > 0
+      ? `<span class="badge badge-crit">${r.expired.toFixed(0)}</span>`
+      : `<span class="badge badge-gray">0</span>`;
+
+    const unsellableCell = r.unsellableDate ? fmtDate(r.unsellableDate) : '—';
+
+    let transferCell = '—';
+    if (r.transferWh) {
+      const curDoc   = r.transferCurDoc != null ? `${r.transferCurDoc.toFixed(0)}d` : '—';
+      const addedDoc = r.transferDocAdded != null ? `+${r.transferDocAdded.toFixed(0)}d` : '';
+      transferCell   = `<span class="badge badge-blue">${r.transferWh}</span>`;
+      var curDocCell  = curDoc;
+      var addedDocCell = addedDoc ? `<span class="badge badge-green">${addedDoc}</span>` : '—';
+    } else {
+      var curDocCell  = '—';
+      var addedDocCell = r.daysOfSellability != null && r.daysOfSellability <= 0
+        ? `<span class="badge badge-crit">Unsellable</span>`
+        : '—';
+    }
+
+    return `<tr>
+      <td class="trunc" title="${r.item_name}"><strong>${r.item_name}</strong></td>
+      <td><span class="badge badge-blue">${r.warehouse_name}</span></td>
+      <td>${r.vendor_name || '—'}</td>
+      <td>${expiredCell}</td>
+      <td>${r.min_expiration_date || '—'}</td>
+      <td>${r.minExpQty > 0 ? r.minExpQty.toFixed(0) : '—'}</td>
+      <td>${unsellableCell}</td>
+      <td>${sellBadge(r.daysOfSellability)}</td>
+      <td>${transferCell}</td>
+      <td>${curDocCell}</td>
+      <td>${addedDocCell}</td>
+    </tr>`;
+  }), 11);
+}
+
 // ─── Warehouse groups ─────────────────────────────────────────────────────────
 const WH_GROUPS = [
   { name: 'Christian Whitney', codes: ['DCA', 'MDT', 'SDF'] },
@@ -1227,6 +1369,7 @@ function render() {
   renderPo14(feIdx);
   renderCoverageGap(rows, feIdx);
   renderOverpurchased(feIdx);
+  renderExpirationRisk(rows);
 }
 
 
