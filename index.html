@@ -1235,11 +1235,14 @@ function renderExpirationRisk(rows) {
     (itemIdx[key] = itemIdx[key] || []).push(r);
   });
 
-  // Only room-temperature items; filter on expired > 0 (willExpire shown in column)
-  const atRisk = rows.filter(r =>
-    (r.refrigeration_state || '').trim() === 'Room Temperature' &&
-    num(r.expired) > 0
-  );
+  // Exclude known cold-storage states; blank/uncategorised = include
+  // (some room-temp items may not have refrigeration_state populated)
+  const COLD = /refrigerat|frozen|chilled|cold/i;
+  const atRisk = rows.filter(r => {
+    const ref = (r.refrigeration_state || '').trim();
+    if (ref && COLD.test(ref)) return false;
+    return num(r.expired) > 0;  // unsellable blank is fine — treated as 0
+  });
 
   const flagged = atRisk.map(r => {
     const expired        = num(r.expired);
