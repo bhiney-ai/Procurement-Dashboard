@@ -1292,7 +1292,8 @@ function renderExpirationRisk(rows) {
     }
 
     return { ...r, expired, unsellable, willExpire, minExpQty, minShelfLife, unsellableDate, daysOfSellability, transferWh, transferCurDoc, transferDocAdded };
-  }).sort((a, b) => b.expired - a.expired);
+  }).filter(r => r.willExpire > 0)
+    .sort((a, b) => b.expired - a.expired);
 
   document.getElementById('expiry-count').textContent = flagged.length;
 
