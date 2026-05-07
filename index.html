@@ -532,7 +532,7 @@ function posLookup(idx, warehouseName, itemName) {
 }
 
 // ─── KPI Cache (localStorage) ─────────────────────────────────────────────────
-const KPI_CACHE_KEY = 'procurement_kpi_v1';
+const KPI_CACHE_KEY = 'procurement_kpi_v3'; // bumped to clear stale cached baselines
 
 function whCacheKey() {
   if (!state.warehouses.size) return 'ALL';
@@ -608,8 +608,9 @@ function updateKPIs(rows, feoos) {
     : rows.filter(r=>num(r.past_due)>0).reduce((s,r)=>s+num(r.past_due),0);
   setText('kpi-pastdue-sub', (total || state.pos.length) ? `${Math.round(pastDueUnits).toLocaleString()} outstanding units` : 'Loading…');
 
-  // Cache & deltas (only when we have real data)
-  if (total) {
+  // Cache & deltas — only write when ALL three sources are loaded to avoid
+  // corrupting the baseline with partial data (e.g. one source still fetching)
+  if (total && state.feoos.length && state.pos.length) {
     const today = new Date().toISOString().slice(0,10);
     const prev  = updateKpiCache(today, { instockRate, oosSkus: ohOOS, feoos: fTotal, pastDue });
     if (prev) {
