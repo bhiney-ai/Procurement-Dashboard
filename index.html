@@ -1235,28 +1235,12 @@ function renderExpirationRisk(rows) {
     (itemIdx[key] = itemIdx[key] || []).push(r);
   });
 
-  // Diagnostic logging — check browser console to understand filter breakdown
-  const _diagRefStates = {};
-  rows.forEach(r => { const s = (r.refrigeration_state||'(blank)').trim(); _diagRefStates[s] = (_diagRefStates[s]||0)+1; });
-  console.log('[Expiry] refrigeration_state breakdown:', _diagRefStates);
-  const _diagRoomTemp = rows.filter(r => (r.refrigeration_state||'').toLowerCase().trim() === 'room temperature');
-  const _diagHasExpired  = _diagRoomTemp.filter(r => num(r.expired) > 0);
-  const _diagWillExpire  = _diagRoomTemp.filter(r => (num(r.expired) - num(r.unsellable)) > 0);
-  console.log('[Expiry] room temp rows:', _diagRoomTemp.length, '| expired>0:', _diagHasExpired.length, '| willExpire>0:', _diagWillExpire.length);
-  if (_diagRoomTemp.length === 0 && rows.length > 0) {
-    // Sample to see actual field values
-    const sample = rows.slice(0,3);
-    console.log('[Expiry] Sample refrigeration_state values:', sample.map(r => JSON.stringify(r.refrigeration_state)));
-    console.log('[Expiry] Sample expired values:', sample.map(r => JSON.stringify(r.expired)));
-    console.log('[Expiry] Sample unsellable values:', sample.map(r => JSON.stringify(r.unsellable)));
-  }
-
-  // Filter: expired - unsellable > 0  (will expire, hasn't hit unsellable threshold yet)
-  // Exclude refrigerated / frozen items via refrigeration_state column
+  // Filter: exclude known cold-storage states; include blank/unclassified
+  const COLD_STATES = /refrigerat|frozen|chilled|cold/i;
   const atRisk = rows.filter(r => {
-    const refState = (r.refrigeration_state || '').toLowerCase().trim();
-    if (refState !== 'room temperature') return false;
-    return (num(r.expired) - num(r.unsellable)) > 0 || num(r.min_expiration_quantity) > 0;
+    const refState = (r.refrigeration_state || '').trim();
+    if (refState && COLD_STATES.test(refState)) return false;
+    return (num(r.expired) - num(r.unsellable)) > 0;
   });
 
   const flagged = atRisk.map(r => {
