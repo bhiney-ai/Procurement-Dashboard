@@ -1108,8 +1108,7 @@ function renderExpirationRisk(rows) {
   // Exclude refrigerated / frozen items via refrigeration_state column
   const atRisk = rows.filter(r => {
     const refState = (r.refrigeration_state || '').toLowerCase().trim();
-    const ambientStates = new Set(['', 'ambient', 'dry', 'none']);
-    if (refState && !ambientStates.has(refState)) return false;
+    if (refState !== 'room temperature') return false;
     return (num(r.expired) - num(r.unsellable)) > 0 || num(r.min_expiration_quantity) > 0;
   });
 
