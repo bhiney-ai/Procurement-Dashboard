@@ -320,27 +320,23 @@
     </table>
   </div>
 
-  <!-- OOS + Overdue PO -->
+  <!-- +14 Day Past Due POs by Vendor -->
   <div class="table-card">
-    <h2>🚨 Zero On-Hand + Overdue PO <span class="pill-count" id="oospo-count"></span></h2>
-    <p style="font-size:.72rem;color:#a0aec0;margin-bottom:10px;">Items with no on-hand inventory where <code>next_po_delivery_date</code> has already passed.</p>
+    <h2>Purchase Orders +14 Days Past Due <span class="pill-count" id="po14-count"></span></h2>
     <table>
       <thead>
         <tr>
-          <th>Item</th>
-          <th>Category</th>
           <th>Vendor</th>
-          <th>Warehouse</th>
-          <th>On Hand</th>
-          <th>Next PO Delivery</th>
+          <th>Warehouses</th>
+          <th>Past Due Lines</th>
+          <th>Unique Items</th>
+          <th>Farthest Past Due Date</th>
           <th>Days Overdue</th>
-          <th>Next PO Qty</th>
-          <th>Net DoC (Pipeline)</th>
+          <th>Total Outstanding Units</th>
           <th>FEOOS (14d)</th>
-          <th>Consumption/Day</th>
         </tr>
       </thead>
-      <tbody id="oospo-tbody"></tbody>
+      <tbody id="po14-tbody"></tbody>
     </table>
   </div>
 
@@ -511,6 +507,8 @@ function getPastDuePOs(pos) {
   const today = new Date(); today.setHours(0,0,0,0);
   return pos.filter(p => {
     if (!p.expected_receipt_date_date) return false;
+    // If shipment received date is set, the order was received or closed — omit
+    if (p.shipment_received_utc_date && p.shipment_received_utc_date.trim()) return false;
     const ordered  = num(p.purchase_order_units);
     const received = num(p.quantity_received_pu);
     if (ordered > 0 && received >= ordered) return false; // fully received
@@ -864,70 +862,71 @@ function renderOOS(rows, feIdx) {
   }), 10);
 }
 
-// ─── OOS + Overdue PO table ───────────────────────────────────────────────────
-function renderOosOverduePo(rows, feIdx) {
+// ─── +14 Day Past Due POs — vendor-level table ────────────────────────────────
+function renderPo14(feIdx) {
   const today = new Date(); today.setHours(0,0,0,0);
 
-  // Cross-reference with PO sheet if available
-  const posIdx = buildPosIndex(posFiltered());
-  const pastDuePOKeys = new Set(
-    getPastDuePOs(posFiltered()).map(p => (p.warehouse_name||'') + '::' + normName(p.item_name))
-  );
+  // All past due POs (already excludes received/closed), then filter to 14+ days overdue
+  const po14 = getPastDuePOs(posFiltered()).filter(p => {
+    const exp = new Date(p.expected_receipt_date_date); exp.setHours(0,0,0,0);
+    return Math.ceil((today - exp) / 86400000) >= 14;
+  });
 
-  const flagged = rows
-    .filter(r => {
-      if (num(r.inventory) > 0) return false;
-      const key = (r.warehouse_name||'') + '::' + normName(r.item_name);
-      if (state.pos.length) return pastDuePOKeys.has(key);
-      // Fallback: use inventory dump
-      if (!r.next_po_delivery_date) return false;
-      const poDate = new Date(r.next_po_delivery_date); poDate.setHours(0,0,0,0);
-      return poDate < today;
-    })
-    .map(r => {
-      const key = (r.warehouse_name||'') + '::' + normName(r.item_name);
-      const matchedPOs = posLookup(posIdx, r.warehouse_name, r.item_name);
-      const oldestPO = matchedPOs.length
-        ? matchedPOs.reduce((a,b) => a.expected_receipt_date_date < b.expected_receipt_date_date ? a : b)
-        : null;
-      const daysOverdue = oldestPO
-        ? Math.ceil((today - new Date(oldestPO.expected_receipt_date_date)) / 86400000)
-        : r.next_po_delivery_date ? Math.ceil((today - new Date(r.next_po_delivery_date)) / 86400000) : 0;
-      return { ...r, daysOverdue, matchedPOs };
-    })
-    .sort((a, b) => num(b.consumption_rate) - num(a.consumption_rate));
+  // Group by vendor name
+  const byVendor = {};
+  po14.forEach(p => {
+    const vname = vendorName(p.full_vendor_name) || 'Unknown';
+    if (!byVendor[vname]) byVendor[vname] = { lines: [], warehouses: new Set(), items: new Set(), farthestDate: null };
+    const g = byVendor[vname];
+    g.lines.push(p);
+    g.warehouses.add(p.warehouse_name);
+    g.items.add(normName(p.item_name));
+    // Track farthest past due = oldest expected date
+    if (!g.farthestDate || p.expected_receipt_date_date < g.farthestDate) {
+      g.farthestDate = p.expected_receipt_date_date;
+    }
+  });
 
-  document.getElementById('oospo-count').textContent = flagged.length;
+  const vendorRows = Object.entries(byVendor).map(([vname, g]) => {
+    const daysOverdue  = Math.ceil((today - new Date(g.farthestDate)) / 86400000);
+    const outstanding  = g.lines.reduce((s, p) => s + Math.max(0, num(p.purchase_order_units) - num(p.quantity_received_pu)), 0);
+    // Sum FEOOS demand for all item/warehouse combos in this vendor group
+    let feQty = 0;
+    g.lines.forEach(p => {
+      const fe = feooLookup(feIdx, p.warehouse_name, p.item_name);
+      if (fe) feQty += fe.qty;
+    });
+    return { vname, lines: g.lines.length, warehouses: [...g.warehouses].sort(), items: g.items.size, farthestDate: g.farthestDate, daysOverdue, outstanding, feQty };
+  }).sort((a, b) => b.daysOverdue - a.daysOverdue);
 
-  if (!flagged.length) {
-    document.getElementById('oospo-tbody').innerHTML =
-      '<tr><td colspan="11" class="empty">No items with zero on-hand and an overdue PO</td></tr>';
+  document.getElementById('po14-count').textContent = vendorRows.length;
+
+  if (!vendorRows.length) {
+    document.getElementById('po14-tbody').innerHTML =
+      '<tr><td colspan="8" class="empty">No vendors with POs 14+ days past due</td></tr>';
     return;
   }
 
-  function overdueBadge(days) {
-    if (days >= 7)  return `<span class="badge badge-crit">${days}d overdue</span>`;
-    if (days >= 3)  return `<span class="badge badge-high">${days}d overdue</span>`;
-    return `<span class="badge badge-watch">${days}d overdue</span>`;
+  function overdueBadge(d) {
+    if (d >= 30) return `<span class="badge badge-crit">${d}d overdue</span>`;
+    if (d >= 14) return `<span class="badge badge-high">${d}d overdue</span>`;
+    return `<span class="badge badge-watch">${d}d overdue</span>`;
   }
 
-  renderTable('oospo-tbody', flagged.map(r => {
-    const fe     = feooLookup(feIdx, r.warehouse_name, r.item_name);
-    const feCell = fe ? `<strong>${fe.qty.toFixed(0)}</strong>` : (state.feoos.length ? '0' : '—');
+  renderTable('po14-tbody', vendorRows.map(r => {
+    const whBadges = r.warehouses.map(w => `<span class="badge badge-blue">${w}</span>`).join(' ');
+    const feCell   = r.feQty > 0 ? `<strong>${r.feQty.toFixed(0)}</strong>` : (state.feoos.length ? '0' : '—');
     return `<tr>
-      <td class="trunc" title="${r.item_name}"><strong>${r.item_name}</strong></td>
-      <td>${topCat(r.item_class)}</td>
-      <td>${r.vendor_name}</td>
-      <td><span class="badge badge-blue">${r.warehouse_name}</span></td>
-      <td><span class="badge badge-crit">0</span></td>
-      <td>${r.next_po_delivery_date}</td>
+      <td><strong>${r.vname}</strong></td>
+      <td style="white-space:normal;line-height:1.6">${whBadges}</td>
+      <td>${r.lines}</td>
+      <td>${r.items}</td>
+      <td>${r.farthestDate}</td>
       <td>${overdueBadge(r.daysOverdue)}</td>
-      <td>${r.next_po_quantity || '—'}</td>
-      <td>${docBadge(r.net_days_of_cover)}</td>
+      <td>${r.outstanding.toFixed(0)}</td>
       <td>${feCell}</td>
-      <td>${num(r.consumption_rate).toFixed(2)}/day</td>
     </tr>`;
-  }), 11);
+  }), 8);
 }
 
 // ─── Coverage Gap table ───────────────────────────────────────────────────────
@@ -1136,7 +1135,7 @@ function render() {
   buildDocChart(rows);
   renderPastDue(rows, feIdx);
   renderOOS(rows, feIdx);
-  renderOosOverduePo(rows, feIdx);
+  renderPo14(feIdx);
   renderCoverageGap(rows, feIdx);
 }
 
