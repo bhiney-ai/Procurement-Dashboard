@@ -320,19 +320,21 @@
     </table>
   </div>
 
-  <!-- +14 Day Past Due POs by Vendor -->
+  <!-- +14 Day Past Due POs -->
   <div class="table-card">
     <h2>Purchase Orders +14 Days Past Due <span class="pill-count" id="po14-count"></span></h2>
     <table>
       <thead>
         <tr>
+          <th>PO Number</th>
           <th>Vendor</th>
-          <th>Warehouses</th>
-          <th>Past Due Lines</th>
-          <th>Unique Items</th>
-          <th>Farthest Past Due Date</th>
+          <th>Item</th>
+          <th>Warehouse</th>
+          <th>Expected Date</th>
           <th>Days Overdue</th>
-          <th>Total Outstanding Units</th>
+          <th>Ordered Qty</th>
+          <th>Received Qty</th>
+          <th>Outstanding</th>
           <th>FEOOS (14d)</th>
         </tr>
       </thead>
@@ -885,48 +887,23 @@ function renderOOS(rows, feIdx) {
   }), 10);
 }
 
-// ─── +14 Day Past Due POs — vendor-level table ────────────────────────────────
+// ─── +14 Day Past Due POs — PO-level table ───────────────────────────────────
 function renderPo14(feIdx) {
   const today = new Date(); today.setHours(0,0,0,0);
 
-  // All past due POs (already excludes received/closed), then filter to 14+ days overdue
-  const po14 = getPastDuePOs(posFiltered()).filter(p => {
-    const exp = new Date(p.expected_receipt_date_date); exp.setHours(0,0,0,0);
-    return Math.ceil((today - exp) / 86400000) >= 14;
-  });
+  const po14 = getPastDuePOs(posFiltered())
+    .map(p => ({
+      ...p,
+      daysOverdue: Math.ceil((today - new Date(p.expected_receipt_date_date)) / 86400000),
+    }))
+    .filter(p => p.daysOverdue >= 14)
+    .sort((a, b) => b.daysOverdue - a.daysOverdue);
 
-  // Group by vendor name
-  const byVendor = {};
-  po14.forEach(p => {
-    const vname = vendorName(p.full_vendor_name) || 'Unknown';
-    if (!byVendor[vname]) byVendor[vname] = { lines: [], warehouses: new Set(), items: new Set(), farthestDate: null };
-    const g = byVendor[vname];
-    g.lines.push(p);
-    g.warehouses.add(p.warehouse_name);
-    g.items.add(normName(p.item_name));
-    // Track farthest past due = oldest expected date
-    if (!g.farthestDate || p.expected_receipt_date_date < g.farthestDate) {
-      g.farthestDate = p.expected_receipt_date_date;
-    }
-  });
+  document.getElementById('po14-count').textContent = po14.length;
 
-  const vendorRows = Object.entries(byVendor).map(([vname, g]) => {
-    const daysOverdue  = Math.ceil((today - new Date(g.farthestDate)) / 86400000);
-    const outstanding  = g.lines.reduce((s, p) => s + Math.max(0, num(p.purchase_order_units) - num(p.quantity_received_pu)), 0);
-    // Sum FEOOS demand for all item/warehouse combos in this vendor group
-    let feQty = 0;
-    g.lines.forEach(p => {
-      const fe = feooLookup(feIdx, p.warehouse_name, p.item_name);
-      if (fe) feQty += fe.qty;
-    });
-    return { vname, lines: g.lines.length, warehouses: [...g.warehouses].sort(), items: g.items.size, farthestDate: g.farthestDate, daysOverdue, outstanding, feQty };
-  }).sort((a, b) => b.daysOverdue - a.daysOverdue);
-
-  document.getElementById('po14-count').textContent = vendorRows.length;
-
-  if (!vendorRows.length) {
+  if (!po14.length) {
     document.getElementById('po14-tbody').innerHTML =
-      '<tr><td colspan="8" class="empty">No vendors with POs 14+ days past due</td></tr>';
+      '<tr><td colspan="10" class="empty">No POs 14+ days past due</td></tr>';
     return;
   }
 
@@ -936,20 +913,23 @@ function renderPo14(feIdx) {
     return `<span class="badge badge-watch">${d}d overdue</span>`;
   }
 
-  renderTable('po14-tbody', vendorRows.map(r => {
-    const whBadges = r.warehouses.map(w => `<span class="badge badge-blue">${w}</span>`).join(' ');
-    const feCell   = r.feQty > 0 ? `<strong>${r.feQty.toFixed(0)}</strong>` : (state.feoos.length ? '0' : '—');
+  renderTable('po14-tbody', po14.map(p => {
+    const fe          = feooLookup(feIdx, p.warehouse_name, p.item_name);
+    const feCell      = fe ? `<strong>${fe.qty.toFixed(0)}</strong>` : (state.feoos.length ? '0' : '—');
+    const outstanding = Math.max(0, num(p.purchase_order_units) - num(p.quantity_received_pu));
     return `<tr>
-      <td><strong>${r.vname}</strong></td>
-      <td style="white-space:normal;line-height:1.6">${whBadges}</td>
-      <td>${r.lines}</td>
-      <td>${r.items}</td>
-      <td>${r.farthestDate}</td>
-      <td>${overdueBadge(r.daysOverdue)}</td>
-      <td>${r.outstanding.toFixed(0)}</td>
+      <td style="font-family:monospace;font-size:.73rem">${p.purchase_order_number}</td>
+      <td>${vendorName(p.full_vendor_name)}</td>
+      <td class="trunc" title="${p.item_name}"><strong>${p.item_name}</strong></td>
+      <td><span class="badge badge-blue">${p.warehouse_name}</span></td>
+      <td>${p.expected_receipt_date_date}</td>
+      <td>${overdueBadge(p.daysOverdue)}</td>
+      <td>${num(p.purchase_order_units).toFixed(0)} ${p.purchase_unit_name||''}</td>
+      <td>${num(p.quantity_received_pu).toFixed(0)}</td>
+      <td><strong>${outstanding.toFixed(0)}</strong></td>
       <td>${feCell}</td>
     </tr>`;
-  }), 8);
+  }), 10);
 }
 
 // ─── Coverage Gap table ───────────────────────────────────────────────────────
