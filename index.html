@@ -1130,19 +1130,16 @@ function renderExpirationRisk(rows) {
       }
     }
 
-    // Best transfer warehouse: same item, different wh, in-catalog, has consumption, lowest net DoC
-    // Only suggest if stock would still be sellable (daysOfSellability > 0)
+    // Best transfer warehouse: same item, different wh, has consumption rate
+    // Rank by lowest resulting DoC after receiving the transfer (current + added)
     let transferWh = null, transferCurDoc = null, transferDocAdded = null;
-    if (willExpire > 0 && daysOfSellability > 0) {
+    if (willExpire > 0) {
       const candidates = (itemIdx[normName(r.item_name)] || [])
         .filter(c =>
           c.warehouse_name !== r.warehouse_name &&
-          bool(c.in_catalog) &&
           num(c.consumption_rate) > 0
         )
         .sort((a, b) => {
-          // Pick site with lowest *resulting* DoC after receiving the transfer:
-          // combines current need (net DoC) + how much this qty adds (willExpire ÷ rate)
           const aResult = num(a.net_days_of_cover) + (willExpire / num(a.consumption_rate));
           const bResult = num(b.net_days_of_cover) + (willExpire / num(b.consumption_rate));
           return aResult - bResult;
@@ -1153,8 +1150,11 @@ function renderExpirationRisk(rows) {
         const consumption = num(best.consumption_rate);
         transferWh        = best.warehouse_name;
         transferCurDoc    = num(best.net_days_of_cover);
-        // DoC added = will-expire qty / consumption, capped at days of sellability
-        transferDocAdded  = Math.min(willExpire / consumption, daysOfSellability);
+        const rawAdded    = willExpire / consumption;
+        // Cap at days of sellability if known
+        transferDocAdded  = (daysOfSellability != null && daysOfSellability > 0)
+          ? Math.min(rawAdded, daysOfSellability)
+          : rawAdded;
       }
     }
 
