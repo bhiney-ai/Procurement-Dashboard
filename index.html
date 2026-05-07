@@ -1104,15 +1104,14 @@ function renderExpirationRisk(rows) {
     (itemIdx[key] = itemIdx[key] || []).push(r);
   });
 
-  // Exclude refrigerated / frozen items — transfers aren't practical
-  const TEMP_EXCLUDE = /refrig|frozen|cold|dairy|chilled/i;
-  const isRefrigFrozen = r => TEMP_EXCLUDE.test(r.item_class || '') || TEMP_EXCLUDE.test(r.item_name || '');
-
   // Filter: expired - unsellable > 0  (will expire, hasn't hit unsellable threshold yet)
-  const atRisk = rows.filter(r =>
-    !isRefrigFrozen(r) &&
-    ((num(r.expired) - num(r.unsellable)) > 0 || num(r.min_expiration_quantity) > 0)
-  );
+  // Exclude refrigerated / frozen items via refrigeration_state column
+  const atRisk = rows.filter(r => {
+    const refState = (r.refrigeration_state || '').toLowerCase().trim();
+    const ambientStates = new Set(['', 'ambient', 'dry', 'none']);
+    if (refState && !ambientStates.has(refState)) return false;
+    return (num(r.expired) - num(r.unsellable)) > 0 || num(r.min_expiration_quantity) > 0;
+  });
 
   const flagged = atRisk.map(r => {
     const expired        = num(r.expired);
