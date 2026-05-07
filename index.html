@@ -328,10 +328,10 @@
         <tr>
           <th>PO Number</th>
           <th>Vendor</th>
-          <th>Item</th>
           <th>Warehouse</th>
           <th>Expected Date</th>
           <th>Days Overdue</th>
+          <th>Lines</th>
           <th>Ordered Qty</th>
           <th>Received Qty</th>
           <th>Outstanding</th>
@@ -891,13 +891,32 @@ function renderOOS(rows, feIdx) {
 function renderPo14(feIdx) {
   const today = new Date(); today.setHours(0,0,0,0);
 
-  const po14 = getPastDuePOs(posFiltered())
-    .map(p => ({
-      ...p,
-      daysOverdue: Math.ceil((today - new Date(p.expected_receipt_date_date)) / 86400000),
-    }))
-    .filter(p => p.daysOverdue >= 14)
-    .sort((a, b) => b.daysOverdue - a.daysOverdue);
+  // Group past-due lines by PO number
+  const byPO = {};
+  getPastDuePOs(posFiltered()).forEach(p => {
+    const daysOverdue = Math.ceil((today - new Date(p.expected_receipt_date_date)) / 86400000);
+    if (daysOverdue < 14) return;
+    const po = p.purchase_order_number;
+    if (!byPO[po]) byPO[po] = {
+      purchase_order_number:    po,
+      vendor:                   vendorName(p.full_vendor_name),
+      warehouse_name:           p.warehouse_name,
+      expected_receipt_date_date: p.expected_receipt_date_date,
+      daysOverdue,
+      lines:       0,
+      ordered:     0,
+      received:    0,
+      feQty:       0,
+    };
+    const g = byPO[po];
+    g.lines++;
+    g.ordered  += num(p.purchase_order_units);
+    g.received += num(p.quantity_received_pu);
+    const fe = feooLookup(feIdx, p.warehouse_name, p.item_name);
+    if (fe) g.feQty += fe.qty;
+  });
+
+  const po14 = Object.values(byPO).sort((a, b) => b.daysOverdue - a.daysOverdue);
 
   document.getElementById('po14-count').textContent = po14.length;
 
@@ -914,18 +933,17 @@ function renderPo14(feIdx) {
   }
 
   renderTable('po14-tbody', po14.map(p => {
-    const fe          = feooLookup(feIdx, p.warehouse_name, p.item_name);
-    const feCell      = fe ? `<strong>${fe.qty.toFixed(0)}</strong>` : (state.feoos.length ? '0' : '—');
-    const outstanding = Math.max(0, num(p.purchase_order_units) - num(p.quantity_received_pu));
+    const outstanding = Math.max(0, p.ordered - p.received);
+    const feCell      = p.feQty > 0 ? `<strong>${p.feQty.toFixed(0)}</strong>` : (state.feoos.length ? '0' : '—');
     return `<tr>
       <td style="font-family:monospace;font-size:.73rem">${p.purchase_order_number}</td>
-      <td>${vendorName(p.full_vendor_name)}</td>
-      <td class="trunc" title="${p.item_name}"><strong>${p.item_name}</strong></td>
+      <td>${p.vendor}</td>
       <td><span class="badge badge-blue">${p.warehouse_name}</span></td>
       <td>${p.expected_receipt_date_date}</td>
       <td>${overdueBadge(p.daysOverdue)}</td>
-      <td>${num(p.purchase_order_units).toFixed(0)} ${p.purchase_unit_name||''}</td>
-      <td>${num(p.quantity_received_pu).toFixed(0)}</td>
+      <td>${p.lines}</td>
+      <td>${p.ordered.toFixed(0)}</td>
+      <td>${p.received.toFixed(0)}</td>
       <td><strong>${outstanding.toFixed(0)}</strong></td>
       <td>${feCell}</td>
     </tr>`;
