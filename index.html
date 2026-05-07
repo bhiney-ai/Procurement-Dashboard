@@ -937,7 +937,9 @@ function renderOOS(rows, feIdx) {
   renderTable('oos-tbody', oos.map(r => {
     const fe = feooLookup(feIdx, r.warehouse_name, r.item_name);
     const feCell = fe ? `<strong>${fe.qty.toFixed(0)}</strong>` : (state.feoos.length?'0':'—');
-    const nextPo = r.next_po_delivery_date || nextPoIdx[(r.warehouse_name||'')+'::'+normName(r.item_name)] || '';
+    // Trim whitespace; also try _date suffix variant in case sheet exports it that way
+    const nextPo = (r.next_po_delivery_date || r.next_po_delivery_date_date || '').trim()
+      || nextPoIdx[(r.warehouse_name||'')+'::'+normName(r.item_name)] || '';
 
     // Inform OOS Since from FEOOS earliest event date
     let oosSinceCell;
@@ -968,7 +970,8 @@ function renderOOS(rows, feIdx) {
     </tr>`;
   }), 10, oos.map(r => {
     const fe = feooLookup(feIdx, r.warehouse_name, r.item_name);
-    const np = r.next_po_delivery_date || nextPoIdx[(r.warehouse_name||'')+'::'+normName(r.item_name)] || '';
+    const np = (r.next_po_delivery_date || r.next_po_delivery_date_date || '').trim()
+      || nextPoIdx[(r.warehouse_name||'')+'::'+normName(r.item_name)] || '';
     const daysBack = fe?.earliestDate ? Math.round((today - new Date(fe.earliestDate)) / 86400000) : null;
     const oosSince = fe?.earliestDate ? (daysBack >= 14 ? '+14 Days' : `${daysBack}d ago`) : (num(r.est_days_of_cover) === 0 ? 'Today' : 'Unknown');
     return {
