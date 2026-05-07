@@ -538,7 +538,14 @@ const KPI_CACHE_KEY = 'procurement_kpi_v1';
 
 function whCacheKey() {
   if (!state.warehouses.size) return 'ALL';
-  return [...state.warehouses].sort().join(',');
+  const sel = [...state.warehouses].sort();
+  // If selection exactly matches a named group, use the person's name as the key
+  const matchedGroup = WH_GROUPS.find(g => {
+    const groupWhs = [...document.querySelectorAll(`label.wh-wh[data-group="${g.name}"] .wh-cb`)]
+      .map(c => c.value).sort();
+    return groupWhs.length === sel.length && groupWhs.every((w, i) => w === sel[i]);
+  });
+  return matchedGroup ? matchedGroup.name : sel.join(',');
 }
 
 function loadKpiCache() {
