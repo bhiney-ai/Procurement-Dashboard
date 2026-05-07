@@ -507,7 +507,9 @@ function getPastDuePOs(pos) {
   const today = new Date(); today.setHours(0,0,0,0);
   return pos.filter(p => {
     if (!p.expected_receipt_date_date) return false;
-    if (p.shipment_received_utc_date && p.shipment_received_utc_date.trim()) return false;
+    const ordered  = num(p.purchase_order_units);
+    const received = num(p.quantity_received_pu);
+    if (ordered > 0 && received >= ordered) return false; // fully received
     const exp = new Date(p.expected_receipt_date_date); exp.setHours(0,0,0,0);
     return exp < today;
   });
