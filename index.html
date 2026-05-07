@@ -168,6 +168,13 @@
       <span class="ds-text" id="feoos-status">Not loaded</span>
     </div>
   </div>
+  <div class="data-source">
+    <span class="ds-label">Purchase Orders</span>
+    <div class="ds-status">
+      <span class="ds-dot" id="pos-dot"></span>
+      <span class="ds-text" id="pos-status">Not loaded</span>
+    </div>
+  </div>
   <span class="manual-toggle" id="manual-toggle">manual override</span>
   <button class="refresh-btn" id="refresh-btn" onclick="fetchAll()">
     <span class="spin" id="spin-icon">↻</span> Refresh Data
@@ -184,6 +191,11 @@
     <label>FEOOS CSV (override)</label>
     <span class="sub">Replaces live Google Sheet data</span>
     <input type="file" id="feoos-file" accept=".csv" />
+  </div>
+  <div class="upload-group">
+    <label>Purchase Orders CSV (override)</label>
+    <span class="sub">Replaces live Google Sheet data</span>
+    <input type="file" id="pos-file" accept=".csv" />
   </div>
 </div>
 
@@ -271,15 +283,15 @@
       <thead>
         <tr>
           <th>Item</th>
-          <th>Category</th>
-          <th>Vendor</th>
           <th>Warehouse</th>
-          <th>Past Due PO</th>
-          <th>Past Due Qty</th>
-          <th>On Hand</th>
-          <th>Net DoC</th>
+          <th>Vendor</th>
+          <th>PO Number</th>
+          <th>Expected Date</th>
+          <th>Days Overdue</th>
+          <th>Ordered Qty</th>
+          <th>Received Qty</th>
+          <th>Outstanding</th>
           <th>FEOOS (14d)</th>
-          <th>Consumption/Day</th>
         </tr>
       </thead>
       <tbody id="pastdue-tbody"></tbody>
@@ -360,7 +372,7 @@
 
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
-let state = { rows: [], feoos: [], warehouses: new Set() }; // empty Set = All
+let state = { rows: [], feoos: [], pos: [], warehouses: new Set() }; // empty Set = All
 let charts = {};
 
 // ─── Expand / collapse ────────────────────────────────────────────────────────
@@ -483,6 +495,38 @@ function feooFiltered() {
   return state.feoos.filter(f => state.warehouses.has(f.warehouse));
 }
 
+function posFiltered() {
+  if (!state.warehouses.size) return state.pos;
+  return state.pos.filter(p => state.warehouses.has(p.warehouse_name));
+}
+
+// PO helpers
+function vendorName(raw) { return (raw||'').replace(/^VEN\d+\s+/, ''); }
+
+function getPastDuePOs(pos) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  return pos.filter(p => {
+    if (!p.expected_receipt_date_date) return false;
+    if (p.shipment_received_utc_date && p.shipment_received_utc_date.trim()) return false;
+    const exp = new Date(p.expected_receipt_date_date); exp.setHours(0,0,0,0);
+    return exp < today;
+  });
+}
+
+function buildPosIndex(pos) {
+  // key: warehouse_name::normName(item_name) -> list of POs
+  const idx = {};
+  pos.forEach(p => {
+    const key = (p.warehouse_name||'') + '::' + normName(p.item_name);
+    (idx[key] = idx[key] || []).push(p);
+  });
+  return idx;
+}
+
+function posLookup(idx, warehouseName, itemName) {
+  return idx[(warehouseName||'') + '::' + normName(itemName)] || [];
+}
+
 // ─── KPI Cache (localStorage) ─────────────────────────────────────────────────
 const KPI_CACHE_KEY = 'procurement_kpi_v1';
 
@@ -532,7 +576,10 @@ function updateKPIs(rows, feoos) {
   const total   = catalog.length;
   const netIn   = catalog.filter(r=>num(r.net_inventory)>0).length;
   const ohOOS   = catalog.filter(r=>num(r.inventory)<=0).length;
-  const pastDue = rows.filter(r=>num(r.past_due)>0).length;
+  const pastDuePOs = getPastDuePOs(posFiltered());
+  const pastDue = state.pos.length
+    ? new Set(pastDuePOs.map(p => (p.warehouse_name||'') + '::' + normName(p.item_name))).size
+    : rows.filter(r=>num(r.past_due)>0).length;
   const fTotal  = feoos.reduce((s,f)=>s+num(f.quantity_of_feoos_items_requested_in_sales_units),0);
   const fItems  = new Set(feoos.map(f=>normName(f.item_name))).size;
 
@@ -544,8 +591,11 @@ function updateKPIs(rows, feoos) {
   setText('kpi-oos-sub',     total ? `of ${total} in-catalog SKUs` : 'Upload inventory CSV');
   setText('kpi-feoos',       feoos.length ? fTotal.toLocaleString() : '—');
   setText('kpi-feoos-sub',   feoos.length ? `${feoos.length.toLocaleString()} events · ${fItems} unique items` : 'Upload FEOOS CSV');
-  setText('kpi-pastdue',     total ? pastDue : '—');
-  setText('kpi-pastdue-sub', total ? `${rows.filter(r=>num(r.past_due)>0).reduce((s,r)=>s+num(r.past_due),0).toFixed(0)} total units past due` : 'Upload inventory CSV');
+  setText('kpi-pastdue',     (total || state.pos.length) ? pastDue : '—');
+  const pastDueUnits = state.pos.length
+    ? pastDuePOs.reduce((s,p) => s + num(p.purchase_order_units) - num(p.quantity_received_pu), 0)
+    : rows.filter(r=>num(r.past_due)>0).reduce((s,r)=>s+num(r.past_due),0);
+  setText('kpi-pastdue-sub', (total || state.pos.length) ? `${Math.round(pastDueUnits).toLocaleString()} outstanding units` : 'Loading…');
 
   // Cache & deltas (only when we have real data)
   if (total) {
@@ -703,24 +753,61 @@ function drawEmpty(ctx, msg) {
 
 // ─── Tables ───────────────────────────────────────────────────────────────────
 function renderPastDue(rows, feIdx) {
-  const today = new Date();
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  // Prefer granular PO sheet; fall back to inventory dump
+  if (state.pos.length) {
+    const pastDue = getPastDuePOs(posFiltered())
+      .map(p => ({ ...p, daysOverdue: Math.ceil((today - new Date(p.expected_receipt_date_date)) / 86400000) }))
+      .sort((a,b) => b.daysOverdue - a.daysOverdue);
+
+    document.getElementById('pastdue-count').textContent = pastDue.length;
+    if (!pastDue.length) { document.getElementById('pastdue-tbody').innerHTML='<tr><td colspan="10" class="empty">No past due POs</td></tr>'; return; }
+
+    function overdueBadge(d) {
+      if (d >= 14) return `<span class="badge badge-crit">${d}d overdue</span>`;
+      if (d >= 7)  return `<span class="badge badge-high">${d}d overdue</span>`;
+      return `<span class="badge badge-watch">${d}d overdue</span>`;
+    }
+
+    renderTable('pastdue-tbody', pastDue.map(p => {
+      const fe  = feooLookup(feIdx, p.warehouse_name, p.item_name);
+      const outstanding = Math.max(0, num(p.purchase_order_units) - num(p.quantity_received_pu));
+      const feCell = fe ? `<strong>${fe.qty.toFixed(0)}</strong>` : '—';
+      return `<tr>
+        <td class="trunc" title="${p.item_name}"><strong>${p.item_name}</strong></td>
+        <td><span class="badge badge-blue">${p.warehouse_name}</span></td>
+        <td>${vendorName(p.full_vendor_name)}</td>
+        <td style="font-family:monospace;font-size:.73rem">${p.purchase_order_number}</td>
+        <td>${p.expected_receipt_date_date}</td>
+        <td>${overdueBadge(p.daysOverdue)}</td>
+        <td>${num(p.purchase_order_units).toFixed(0)} ${p.purchase_unit_name||''}</td>
+        <td>${num(p.quantity_received_pu).toFixed(0)}</td>
+        <td><strong>${outstanding.toFixed(0)}</strong></td>
+        <td>${feCell}</td>
+      </tr>`;
+    }), 10);
+    return;
+  }
+
+  // Fallback: inventory dump
   const pastDue = rows.filter(r=>num(r.past_due)>0).sort((a,b)=>num(b.past_due)-num(a.past_due));
   document.getElementById('pastdue-count').textContent = pastDue.length;
   if (!pastDue.length) { document.getElementById('pastdue-tbody').innerHTML='<tr><td colspan="10" class="empty">No past due PO items</td></tr>'; return; }
   renderTable('pastdue-tbody', pastDue.map(r => {
     const fe = feooLookup(feIdx, r.warehouse_name, r.item_name);
-    const feCell = fe ? `<strong>${fe.qty.toFixed(0)}</strong> <span style="color:#a0aec0;font-size:.7rem">(${fe.events} events)</span>` : '—';
+    const feCell = fe ? `<strong>${fe.qty.toFixed(0)}</strong>` : '—';
     return `<tr>
       <td class="trunc" title="${r.item_name}"><strong>${r.item_name}</strong></td>
-      <td>${topCat(r.item_class)}</td>
-      <td>${r.vendor_name}</td>
       <td><span class="badge badge-blue">${r.warehouse_name}</span></td>
+      <td>${r.vendor_name}</td>
       <td style="font-family:monospace;font-size:.73rem">${r.purchase_orders_past_due||'—'}</td>
+      <td>—</td>
+      <td><span class="badge badge-crit">—</span></td>
+      <td>${num(r.past_due).toFixed(0)}</td>
+      <td>—</td>
       <td><strong>${num(r.past_due).toFixed(0)}</strong></td>
-      <td>${num(r.inventory).toFixed(0)}</td>
-      <td>${docBadge(r.net_days_of_cover)}</td>
       <td>${feCell}</td>
-      <td>${(+r.consumption_rate||0).toFixed(2)}/day</td>
     </tr>`;
   }), 10);
 }
@@ -768,15 +855,32 @@ function renderOOS(rows, feIdx) {
 function renderOosOverduePo(rows, feIdx) {
   const today = new Date(); today.setHours(0,0,0,0);
 
+  // Cross-reference with PO sheet if available
+  const posIdx = buildPosIndex(posFiltered());
+  const pastDuePOKeys = new Set(
+    getPastDuePOs(posFiltered()).map(p => (p.warehouse_name||'') + '::' + normName(p.item_name))
+  );
+
   const flagged = rows
     .filter(r => {
+      if (num(r.inventory) > 0) return false;
+      const key = (r.warehouse_name||'') + '::' + normName(r.item_name);
+      if (state.pos.length) return pastDuePOKeys.has(key);
+      // Fallback: use inventory dump
       if (!r.next_po_delivery_date) return false;
       const poDate = new Date(r.next_po_delivery_date); poDate.setHours(0,0,0,0);
-      return num(r.inventory) <= 0 && poDate < today;
+      return poDate < today;
     })
     .map(r => {
-      const poDate = new Date(r.next_po_delivery_date); poDate.setHours(0,0,0,0);
-      return { ...r, daysOverdue: Math.ceil((today - poDate) / 86400000) };
+      const key = (r.warehouse_name||'') + '::' + normName(r.item_name);
+      const matchedPOs = posLookup(posIdx, r.warehouse_name, r.item_name);
+      const oldestPO = matchedPOs.length
+        ? matchedPOs.reduce((a,b) => a.expected_receipt_date_date < b.expected_receipt_date_date ? a : b)
+        : null;
+      const daysOverdue = oldestPO
+        ? Math.ceil((today - new Date(oldestPO.expected_receipt_date_date)) / 86400000)
+        : r.next_po_delivery_date ? Math.ceil((today - new Date(r.next_po_delivery_date)) / 86400000) : 0;
+      return { ...r, daysOverdue, matchedPOs };
     })
     .sort((a, b) => num(b.consumption_rate) - num(a.consumption_rate));
 
@@ -1023,10 +1127,12 @@ function render() {
   renderCoverageGap(rows, feIdx);
 }
 
+
 // ─── Google Sheets sources ────────────────────────────────────────────────────
 const SOURCES = {
   inv:   'https://docs.google.com/spreadsheets/d/1sPEc5rBdRB9qaJijBh4z8DK4ZVo--5xmTGbPTZ5n2nQ/export?format=csv&gid=1794766977',
   feoos: 'https://docs.google.com/spreadsheets/d/1tNBL8WXowviHwF5ywOaYl0xkUQCnr9c56Idmfx7kf8Y/export?format=csv&gid=1294742534',
+  pos:   'https://docs.google.com/spreadsheets/d/1x5T4i6WrO22iGJ2-0tX8N_hrOVC4NwRRCkoA5VWMmOo/export?format=csv&gid=796468827',
 };
 
 function setStatus(key, state, msg) {
@@ -1045,6 +1151,7 @@ async function fetchAll() {
   await Promise.all([
     fetchSource('inv'),
     fetchSource('feoos'),
+    fetchSource('pos'),
   ]);
 
   btn.disabled = false;
@@ -1065,9 +1172,13 @@ async function fetchSource(key) {
       const d = rows[0]?.order_date || new Date().toISOString().slice(0,10);
       document.getElementById('last-updated').textContent = 'Inventory as of: ' + d;
       setStatus('inv', 'ok', `${rows.length.toLocaleString()} rows · ${d}`);
-    } else {
+    } else if (key === 'feoos') {
       state.feoos = rows;
       setStatus('feoos', 'ok', `${rows.length.toLocaleString()} events loaded`);
+    } else {
+      state.pos = rows;
+      const pastDueCount = getPastDuePOs(rows).length;
+      setStatus('pos', 'ok', `${rows.length.toLocaleString()} PO lines · ${pastDueCount} past due`);
     }
   } catch (e) {
     setStatus(key, 'err', 'Failed — check sharing settings');
@@ -1097,6 +1208,16 @@ document.getElementById('feoos-file').addEventListener('change', e => {
   f.text().then(t => {
     state.feoos = parseCSV(t);
     setStatus('feoos', 'ok', `${state.feoos.length.toLocaleString()} events (manual)`);
+    render();
+  });
+});
+
+document.getElementById('pos-file').addEventListener('change', e => {
+  const f=e.target.files[0]; if(!f) return;
+  f.text().then(t => {
+    state.pos = parseCSV(t);
+    const pastDueCount = getPastDuePOs(state.pos).length;
+    setStatus('pos', 'ok', `${state.pos.length.toLocaleString()} PO lines · ${pastDueCount} past due (manual)`);
     render();
   });
 });
