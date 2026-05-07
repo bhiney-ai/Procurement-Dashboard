@@ -1104,9 +1104,14 @@ function renderExpirationRisk(rows) {
     (itemIdx[key] = itemIdx[key] || []).push(r);
   });
 
+  // Exclude refrigerated / frozen items — transfers aren't practical
+  const TEMP_EXCLUDE = /refrig|frozen|cold|dairy|chilled/i;
+  const isRefrigFrozen = r => TEMP_EXCLUDE.test(r.item_class || '') || TEMP_EXCLUDE.test(r.item_name || '');
+
   // Filter: expired - unsellable > 0  (will expire, hasn't hit unsellable threshold yet)
   const atRisk = rows.filter(r =>
-    (num(r.expired) - num(r.unsellable)) > 0 || num(r.min_expiration_quantity) > 0
+    !isRefrigFrozen(r) &&
+    ((num(r.expired) - num(r.unsellable)) > 0 || num(r.min_expiration_quantity) > 0)
   );
 
   const flagged = atRisk.map(r => {
@@ -1137,15 +1142,21 @@ function renderExpirationRisk(rows) {
           bool(c.in_catalog) &&
           num(c.consumption_rate) > 0
         )
-        .sort((a, b) => num(a.net_days_of_cover) - num(b.net_days_of_cover));
+        .sort((a, b) => {
+          // Pick site with lowest *resulting* DoC after receiving the transfer:
+          // combines current need (net DoC) + how much this qty adds (willExpire ÷ rate)
+          const aResult = num(a.net_days_of_cover) + (willExpire / num(a.consumption_rate));
+          const bResult = num(b.net_days_of_cover) + (willExpire / num(b.consumption_rate));
+          return aResult - bResult;
+        });
 
       if (candidates.length) {
-        const best         = candidates[0];
-        const consumption  = num(best.consumption_rate);
-        transferWh         = best.warehouse_name;
-        transferCurDoc     = num(best.net_days_of_cover);
+        const best        = candidates[0];
+        const consumption = num(best.consumption_rate);
+        transferWh        = best.warehouse_name;
+        transferCurDoc    = num(best.net_days_of_cover);
         // DoC added = will-expire qty / consumption, capped at days of sellability
-        transferDocAdded   = Math.min(willExpire / consumption, daysOfSellability);
+        transferDocAdded  = Math.min(willExpire / consumption, daysOfSellability);
       }
     }
 
