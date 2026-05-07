@@ -916,12 +916,28 @@ function renderPastDue(rows, feIdx) {
 
 function renderOOS(rows, feIdx) {
   const today = new Date();
+
+  // Build next-open-PO-date index from the granular PO sheet as a fallback
+  // for items where the inventory dump has no next_po_delivery_date
+  const nextPoIdx = {};
+  if (state.pos.length) {
+    posFiltered().forEach(p => {
+      if (!p.expected_receipt_date_date) return;
+      if (p.shipment_received_utc_date && p.shipment_received_utc_date.trim()) return;
+      if (num(p.quantity_received_pu) >= num(p.purchase_order_units) && num(p.purchase_order_units) > 0) return;
+      const key  = (p.warehouse_name || '') + '::' + normName(p.item_name);
+      const prev = nextPoIdx[key];
+      if (!prev || p.expected_receipt_date_date < prev) nextPoIdx[key] = p.expected_receipt_date_date;
+    });
+  }
+
   const oos = rows.filter(r=>bool(r.in_catalog)&&num(r.inventory)<=0).sort((a,b)=>num(b.consumption_rate)-num(a.consumption_rate));
   document.getElementById('oos-count').textContent = oos.length;
   if (!oos.length) { document.getElementById('oos-tbody').innerHTML='<tr><td colspan="10" class="empty">No on-hand OOS items</td></tr>'; return; }
   renderTable('oos-tbody', oos.map(r => {
     const fe = feooLookup(feIdx, r.warehouse_name, r.item_name);
     const feCell = fe ? `<strong>${fe.qty.toFixed(0)}</strong>` : (state.feoos.length?'0':'—');
+    const nextPo = r.next_po_delivery_date || nextPoIdx[(r.warehouse_name||'')+'::'+normName(r.item_name)] || '';
 
     // Inform OOS Since from FEOOS earliest event date
     let oosSinceCell;
@@ -947,11 +963,12 @@ function renderOOS(rows, feIdx) {
       <td>${(+r.consumption_rate||0).toFixed(2)}/day</td>
       <td>${num(r.net_inventory).toFixed(0)}</td>
       <td>${docBadge(r.net_days_of_cover)}</td>
-      <td>${r.next_po_delivery_date||'—'}</td>
+      <td>${nextPo||'—'}</td>
       <td>${feCell}</td>
     </tr>`;
   }), 10, oos.map(r => {
     const fe = feooLookup(feIdx, r.warehouse_name, r.item_name);
+    const np = r.next_po_delivery_date || nextPoIdx[(r.warehouse_name||'')+'::'+normName(r.item_name)] || '';
     const daysBack = fe?.earliestDate ? Math.round((today - new Date(fe.earliestDate)) / 86400000) : null;
     const oosSince = fe?.earliestDate ? (daysBack >= 14 ? '+14 Days' : `${daysBack}d ago`) : (num(r.est_days_of_cover) === 0 ? 'Today' : 'Unknown');
     return {
@@ -964,7 +981,7 @@ function renderOOS(rows, feIdx) {
       'Consumption/Day':   (+r.consumption_rate||0).toFixed(2),
       'Net Inventory':     num(r.net_inventory).toFixed(0),
       'Net DoC':           r.net_days_of_cover,
-      'Next PO Delivery':  r.next_po_delivery_date || '',
+      'Next PO Delivery':  np,
       'FEOOS (14d)':       fe ? fe.qty.toFixed(0) : '0',
     };
   }));
