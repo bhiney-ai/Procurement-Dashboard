@@ -109,6 +109,10 @@
     .table-card { background: #fff; border-radius: 10px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
     .table-card h2 { font-size: .75rem; font-weight: 700; color: #4a5568; margin-bottom: 10px; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 8px; }
 
+    /* Download button */
+    .dl-btn { margin-left: auto; padding: 3px 10px; font-size: .68rem; font-weight: 600; background: #f0f4ff; color: #667eea; border: 1px solid #c3d0f5; border-radius: 5px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+    .dl-btn:hover { background: #e0e8ff; }
+
     /* Badges */
     .badge { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: .67rem; font-weight: 700; white-space: nowrap; }
     .badge-crit   { background: #fff5f5; color: #c53030; border: 1px solid #feb2b2; }
@@ -248,7 +252,7 @@
   <!-- Priority Flags -->
   <div class="flags-section">
     <div class="flags-header">
-      <h2><span class="dot"></span> Priority Action Flags</h2>
+      <h2><span class="dot"></span> Priority Action Flags <button class="dl-btn" onclick="downloadCSV('flags-tbody')">⬇ CSV</button></h2>
       <div class="flags-legend">
         <span><span class="dot dot-crit"></span> Critical — OOS + Active Customer Demand</span>
         <span><span class="dot dot-high"></span> High — At Risk + Demand or Past Due + OOS</span>
@@ -278,7 +282,7 @@
 
   <!-- Past Due POs -->
   <div class="table-card">
-    <h2>Past Due PO Items <span class="pill-count pill-orange" id="pastdue-count"></span></h2>
+    <h2>Past Due PO Items <span class="pill-count pill-orange" id="pastdue-count"></span> <button class="dl-btn" onclick="downloadCSV('pastdue-tbody')">⬇ CSV</button></h2>
     <table>
       <thead>
         <tr>
@@ -300,7 +304,7 @@
 
   <!-- OOS Items -->
   <div class="table-card">
-    <h2>On-Hand OOS Items (In Catalog) <span class="pill-count" id="oos-count"></span></h2>
+    <h2>On-Hand OOS Items (In Catalog) <span class="pill-count" id="oos-count"></span> <button class="dl-btn" onclick="downloadCSV('oos-tbody')">⬇ CSV</button></h2>
     <table>
       <thead>
         <tr>
@@ -322,7 +326,7 @@
 
   <!-- +14 Day Past Due POs -->
   <div class="table-card">
-    <h2>Purchase Orders +14 Days Past Due <span class="pill-count" id="po14-count"></span></h2>
+    <h2>Purchase Orders +14 Days Past Due <span class="pill-count" id="po14-count"></span> <button class="dl-btn" onclick="downloadCSV('po14-tbody')">⬇ CSV</button></h2>
     <table>
       <thead>
         <tr>
@@ -344,7 +348,7 @@
 
   <!-- Coverage Gap -->
   <div class="table-card">
-    <h2>⚠️ On-Hand Won't Cover Until Next PO <span class="pill-count pill-orange" id="gap-count"></span></h2>
+    <h2>⚠️ On-Hand Won't Cover Until Next PO <span class="pill-count pill-orange" id="gap-count"></span> <button class="dl-btn" onclick="downloadCSV('gap-tbody')">⬇ CSV</button></h2>
     <p style="font-size:.72rem;color:#a0aec0;margin-bottom:10px;">Items where current on-hand (<code>est_days_of_cover</code>) runs out before <code>next_po_delivery_date</code> — will go OOS before replenishment arrives.</p>
     <table>
       <thead>
@@ -368,7 +372,7 @@
 
   <!-- Overpurchased POs -->
   <div class="table-card">
-    <h2>📦 PO Quantities Exceeding 100 Days of Coverage <span class="pill-count pill-orange" id="overpurchased-count"></span></h2>
+    <h2>📦 PO Quantities Exceeding 100 Days of Coverage <span class="pill-count pill-orange" id="overpurchased-count"></span> <button class="dl-btn" onclick="downloadCSV('overpurchased-tbody')">⬇ CSV</button></h2>
     <p style="font-size:.72rem;color:#a0aec0;margin-bottom:10px;">Open PO lines where ordered quantity ÷ daily consumption rate exceeds 100 days of supply. Excludes received and closed orders.</p>
     <table>
       <thead>
@@ -390,7 +394,7 @@
 
   <!-- Expiration Risk -->
   <div class="table-card">
-    <h2>🕒 Expiration Risk <span class="pill-count pill-orange" id="expiry-count"></span></h2>
+    <h2>🕒 Expiration Risk <span class="pill-count pill-orange" id="expiry-count"></span> <button class="dl-btn" onclick="downloadCSV('expiry-tbody')">⬇ CSV</button></h2>
     <p style="font-size:.72rem;color:#a0aec0;margin-bottom:10px;">Items with expired or near-expiry stock at current run rate. <strong>Unsellable After</strong> = min expiration date − minimum deliverable shelf life. Best transfer warehouse is the same-item site with the lowest net DoC where the stock would still be sellable.</p>
     <table>
       <thead>
@@ -418,11 +422,13 @@ let charts = {};
 // ─── Expand / collapse ────────────────────────────────────────────────────────
 const PAGE = 20;
 const PAGE_SIZES = { 'pastdue-tbody': 10, 'oos-tbody': 10, 'po14-tbody': 10, 'gap-tbody': 10, 'overpurchased-tbody': 10, 'expiry-tbody': 10 };
-const expanded = {};   // tbodyId -> bool
-const tableRows = {};  // tbodyId -> array of html strings
+const expanded  = {};   // tbodyId -> bool
+const tableRows = {};   // tbodyId -> array of html strings
+const tableData = {};   // tbodyId -> array of plain objects (for CSV export)
 
-function renderTable(tbodyId, htmlRows, colSpan) {
+function renderTable(tbodyId, htmlRows, colSpan, dataRows) {
   tableRows[tbodyId] = htmlRows;
+  if (dataRows) tableData[tbodyId] = dataRows;
   const isExp = expanded[tbodyId] || false;
   const pageSize = PAGE_SIZES[tbodyId] ?? PAGE;
   const visible = isExp ? htmlRows : htmlRows.slice(0, pageSize);
@@ -445,6 +451,17 @@ document.addEventListener('click', e => {
   const cols = btn.closest('table').querySelectorAll('th').length;
   renderTable(id, tableRows[id] || [], cols);
 });
+
+// ─── CSV export ───────────────────────────────────────────────────────────────
+function downloadCSV(tbodyId) {
+  const data = tableData[tbodyId];
+  if (!data || !data.length) { alert('No data to export yet — load data first.'); return; }
+  const headers = Object.keys(data[0]);
+  const escape  = v => { const s = v == null ? '' : String(v); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g,'""')}"` : s; };
+  const csv     = [headers.join(','), ...data.map(r => headers.map(h => escape(r[h])).join(','))].join('\n');
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([csv], {type:'text/csv'})), download: tbodyId.replace('-tbody','') + '.csv' });
+  a.click(); URL.revokeObjectURL(a.href);
+}
 
 // ─── CSV parser (handles quoted fields) ───────────────────────────────────────
 function parseCSV(text) {
@@ -694,6 +711,7 @@ function buildFlags(rows, feoos) {
     flags.push({
       priority,
       issues,
+      item_uuid:          r.item_uuid || '',
       item_name:          r.item_name,
       warehouse_name:     r.warehouse_name,
       inventory:          num(r.inventory),
@@ -738,7 +756,19 @@ function renderFlags(rows, feoos) {
       <td>${docBadge(f.net_days_of_cover)}</td>
       <td>${f.next_po_delivery_date || '—'}</td>
     </tr>`;
-  }), 10);
+  }), 10, flags.map(f => ({
+    'Item UUID':         f.item_uuid,
+    'Priority':          f.priority,
+    'Item':              f.item_name,
+    'Warehouse':         f.warehouse_name,
+    'Issues':            f.issues.join('; '),
+    'FEOOS Qty (14d)':   f.feQty.toFixed(0),
+    'FEOOS Events':      f.feEvents,
+    'Locations Hit':     f.feLocs,
+    'On Hand':           f.inventory.toFixed(0),
+    'Net DoC':           f.net_days_of_cover,
+    'Next PO Delivery':  f.next_po_delivery_date || '',
+  })));
 }
 
 // ─── Charts ───────────────────────────────────────────────────────────────────
@@ -842,7 +872,23 @@ function renderPastDue(rows, feIdx) {
         <td><strong>${outstanding.toFixed(0)}</strong></td>
         <td>${feCell}</td>
       </tr>`;
-    }), 10);
+    }), 10, pastDue.map(p => {
+      const fe = feooLookup(feIdx, p.warehouse_name, p.item_name);
+      const outstanding = Math.max(0, num(p.purchase_order_units) - num(p.quantity_received_pu));
+      return {
+        'Item UUID':      p.item_uuid || '',
+        'Item':           p.item_name,
+        'Warehouse':      p.warehouse_name,
+        'Vendor':         vendorName(p.full_vendor_name),
+        'PO Number':      p.purchase_order_number,
+        'Expected Date':  p.expected_receipt_date_date,
+        'Days Overdue':   p.daysOverdue,
+        'Ordered Qty':    num(p.purchase_order_units).toFixed(0),
+        'Received Qty':   num(p.quantity_received_pu).toFixed(0),
+        'Outstanding':    outstanding.toFixed(0),
+        'FEOOS (14d)':    fe ? fe.qty.toFixed(0) : '0',
+      };
+    }));
     return;
   }
 
@@ -904,7 +950,24 @@ function renderOOS(rows, feIdx) {
       <td>${r.next_po_delivery_date||'—'}</td>
       <td>${feCell}</td>
     </tr>`;
-  }), 10);
+  }), 10, oos.map(r => {
+    const fe = feooLookup(feIdx, r.warehouse_name, r.item_name);
+    const daysBack = fe?.earliestDate ? Math.round((today - new Date(fe.earliestDate)) / 86400000) : null;
+    const oosSince = fe?.earliestDate ? (daysBack >= 14 ? '+14 Days' : `${daysBack}d ago`) : (num(r.est_days_of_cover) === 0 ? 'Today' : 'Unknown');
+    return {
+      'Item UUID':         r.item_uuid || '',
+      'Item':              r.item_name,
+      'Category':          topCat(r.item_class),
+      'Vendor':            r.vendor_name,
+      'Warehouse':         r.warehouse_name,
+      'OOS Since':         oosSince,
+      'Consumption/Day':   (+r.consumption_rate||0).toFixed(2),
+      'Net Inventory':     num(r.net_inventory).toFixed(0),
+      'Net DoC':           r.net_days_of_cover,
+      'Next PO Delivery':  r.next_po_delivery_date || '',
+      'FEOOS (14d)':       fe ? fe.qty.toFixed(0) : '0',
+    };
+  }));
 }
 
 // ─── +14 Day Past Due POs — PO-level table ───────────────────────────────────
@@ -967,7 +1030,18 @@ function renderPo14(feIdx) {
       <td><strong>${outstanding.toFixed(0)}</strong></td>
       <td>${feCell}</td>
     </tr>`;
-  }), 10);
+  }), 10, po14.map(p => ({
+    'PO Number':      p.purchase_order_number,
+    'Vendor':         p.vendor,
+    'Warehouse':      p.warehouse_name,
+    'Expected Date':  p.expected_receipt_date_date,
+    'Days Overdue':   p.daysOverdue,
+    'Lines':          p.lines,
+    'Ordered Qty':    p.ordered.toFixed(0),
+    'Received Qty':   p.received.toFixed(0),
+    'Outstanding':    Math.max(0, p.ordered - p.received).toFixed(0),
+    'FEOOS (14d)':    p.feQty > 0 ? p.feQty.toFixed(0) : '0',
+  })));
 }
 
 // ─── Coverage Gap table ───────────────────────────────────────────────────────
@@ -1020,7 +1094,23 @@ function renderCoverageGap(rows, feIdx) {
       <td>${feCell}</td>
       <td>${num(r.consumption_rate).toFixed(2)}/day</td>
     </tr>`;
-  }), 11);
+  }), 11, flagged.map(r => {
+    const fe = feooLookup(feIdx, r.warehouse_name, r.item_name);
+    return {
+      'Item UUID':           r.item_uuid || '',
+      'Item':                r.item_name,
+      'Category':            topCat(r.item_class),
+      'Vendor':              r.vendor_name,
+      'Warehouse':           r.warehouse_name,
+      'On-Hand DoC':         r.estDoc.toFixed(0),
+      'Next PO Delivery':    r.next_po_delivery_date,
+      'Days Until PO':       r.daysUntilPo,
+      'Gap (OOS Days)':      Math.round(r.gap),
+      'Net DoC (Pipeline)':  r.net_days_of_cover,
+      'FEOOS (14d)':         fe ? fe.qty.toFixed(0) : '0',
+      'Consumption/Day':     num(r.consumption_rate).toFixed(2),
+    };
+  }));
 }
 
 // ─── Overpurchased POs (>100 days of cover) ───────────────────────────────────
@@ -1088,7 +1178,21 @@ function renderOverpurchased(feIdx) {
       <td>${docCoverBadge(p.poDaysOfCover)}</td>
       <td>${feCell}</td>
     </tr>`;
-  }), 9);
+  }), 9, flagged.map(p => {
+    const fe = feooLookup(feIdx, p.warehouse_name, p.item_name);
+    return {
+      'Item UUID':         p.item_uuid || '',
+      'Item':              p.item_name,
+      'Warehouse':         p.warehouse_name,
+      'Vendor':            vendorName(p.full_vendor_name),
+      'PO Number':         p.purchase_order_number,
+      'Expected Date':     p.expected_receipt_date_date || '',
+      'PO Qty':            num(p.purchase_order_units).toFixed(0),
+      'Consumption/Day':   p.consumption.toFixed(2),
+      'PO Days of Cover':  Math.round(p.poDaysOfCover),
+      'FEOOS (14d)':       fe ? fe.qty.toFixed(0) : '0',
+    };
+  }));
 }
 
 // ─── Expiration Risk table ────────────────────────────────────────────────────
@@ -1190,20 +1294,13 @@ function renderExpirationRisk(rows) {
       ? `<span class="badge badge-crit">${r.willExpire.toFixed(0)}</span>`
       : `<span class="badge badge-gray">0</span>`;
 
-    const unsellableCell = r.unsellableDate ? fmtDate(r.unsellableDate) : '—';
-
-    let transferCell = '—';
+    let transferCell = '—', curDocCell = '—', addedDocCell = '—';
     if (r.transferWh) {
-      const curDoc   = r.transferCurDoc != null ? `${r.transferCurDoc.toFixed(0)}d` : '—';
-      const addedDoc = r.transferDocAdded != null ? `+${r.transferDocAdded.toFixed(0)}d` : '';
-      transferCell   = `<span class="badge badge-blue">${r.transferWh}</span>`;
-      var curDocCell  = curDoc;
-      var addedDocCell = addedDoc ? `<span class="badge badge-green">${addedDoc}</span>` : '—';
-    } else {
-      var curDocCell  = '—';
-      var addedDocCell = r.daysOfSellability != null && r.daysOfSellability <= 0
-        ? `<span class="badge badge-crit">Unsellable</span>`
-        : '—';
+      transferCell  = `<span class="badge badge-blue">${r.transferWh}</span>`;
+      curDocCell    = r.transferCurDoc != null ? `${r.transferCurDoc.toFixed(0)}d` : '—';
+      addedDocCell  = r.transferDocAdded != null ? `<span class="badge badge-green">+${r.transferDocAdded.toFixed(0)}d</span>` : '—';
+    } else if (r.daysOfSellability != null && r.daysOfSellability <= 0) {
+      addedDocCell = `<span class="badge badge-crit">Unsellable</span>`;
     }
 
     return `<tr>
@@ -1215,7 +1312,16 @@ function renderExpirationRisk(rows) {
       <td>${curDocCell}</td>
       <td>${addedDocCell}</td>
     </tr>`;
-  }), 7);
+  }), 7, flagged.map(r => ({
+    'Item UUID':              r.item_uuid || '',
+    'Item':                   r.item_name,
+    'Warehouse':              r.warehouse_name,
+    'Vendor':                 r.vendor_name || '',
+    'Expiring Qty':           r.willExpire.toFixed(0),
+    'Best Transfer WH':       r.transferWh || '',
+    'Transfer Net DoC':       r.transferCurDoc != null ? r.transferCurDoc.toFixed(0) : '',
+    'DoC Added by Transfer':  r.transferDocAdded != null ? r.transferDocAdded.toFixed(0) : '',
+  })));
 }
 
 // ─── Warehouse groups ─────────────────────────────────────────────────────────
