@@ -484,20 +484,24 @@ function feooLookup(idx, warehouseName, itemName) {
 
 // ─── Filtering ────────────────────────────────────────────────────────────────
 const whPattern = /^[A-Z0-9]{2,8}(-[A-Z0-9]+)?$/;
+const WH_EXCLUDE = new Set(['MHT1', 'SFO1']);
 
 function filtered() {
-  if (!state.warehouses.size) return state.rows.filter(r => r.warehouse_name && whPattern.test(r.warehouse_name.trim()));
-  return state.rows.filter(r => state.warehouses.has(r.warehouse_name));
+  const base = state.rows.filter(r => r.warehouse_name && whPattern.test(r.warehouse_name.trim()) && !WH_EXCLUDE.has(r.warehouse_name));
+  if (!state.warehouses.size) return base;
+  return base.filter(r => state.warehouses.has(r.warehouse_name));
 }
 
 function feooFiltered() {
-  if (!state.warehouses.size) return state.feoos;
-  return state.feoos.filter(f => state.warehouses.has(f.warehouse));
+  const base = state.feoos.filter(f => !WH_EXCLUDE.has(f.warehouse));
+  if (!state.warehouses.size) return base;
+  return base.filter(f => state.warehouses.has(f.warehouse));
 }
 
 function posFiltered() {
-  if (!state.warehouses.size) return state.pos;
-  return state.pos.filter(p => state.warehouses.has(p.warehouse_name));
+  const base = state.pos.filter(p => !WH_EXCLUDE.has(p.warehouse_name));
+  if (!state.warehouses.size) return base;
+  return base.filter(p => state.warehouses.has(p.warehouse_name));
 }
 
 // PO helpers
@@ -990,7 +994,7 @@ function whGroup(whName) {
 // ─── Warehouse multi-select ───────────────────────────────────────────────────
 function populateWhFilter(rows) {
   const whPattern = /^[A-Z0-9]{2,8}(-[A-Z0-9]+)?$/;
-  const whs = [...new Set(rows.map(r=>r.warehouse_name).filter(w => w && whPattern.test(w.trim())))].sort();
+  const whs = [...new Set(rows.map(r=>r.warehouse_name).filter(w => w && whPattern.test(w.trim()) && !WH_EXCLUDE.has(w)))].sort();
   const dropdown = document.getElementById('wh-dropdown');
   dropdown.querySelectorAll('.wh-wh, .wh-group-hdr').forEach(el => el.remove());
 
