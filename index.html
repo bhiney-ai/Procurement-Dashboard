@@ -1137,6 +1137,7 @@ function renderExpirationRisk(rows) {
       const candidates = (itemIdx[normName(r.item_name)] || [])
         .filter(c =>
           c.warehouse_name !== r.warehouse_name &&
+          c.warehouse_name !== 'MDT1-VA' &&
           num(c.consumption_rate) > 0
         )
         .sort((a, b) => {
