@@ -349,7 +349,7 @@
             <th>FEOOS Events</th>
             <th>Locations Hit</th>
             <th>On Hand</th>
-            <th>Net DoC</th>
+            <th title="Days of coverage once next PO arrives: (On Hand + Inbound PO Qty) ÷ Consumption Rate">DoC w/ PO</th>
             <th>Next PO Delivery</th>
           </tr>
         </thead>
@@ -869,6 +869,20 @@ function renderFlags(rows, feoos) {
   const nextPoIdx = buildNextPoIdx();
   const tbody = document.getElementById('flags-tbody');
 
+  // Build inbound quantity index: wh::normName -> total outstanding units from open future POs
+  const today0 = new Date(); today0.setHours(0,0,0,0);
+  const inboundIdx = {};
+  posFiltered().forEach(p => {
+    if (!p.expected_receipt_date_date) return;
+    if (p.shipment_received_utc_date && p.shipment_received_utc_date.trim()) return;
+    const ord = num(p.purchase_order_units), rec = num(p.quantity_received_pu);
+    if (ord > 0 && rec >= ord) return;
+    const expDate = new Date(p.expected_receipt_date_date); expDate.setHours(0,0,0,0);
+    if (expDate < today0) return;
+    const key = (p.warehouse_name||'') + '::' + normName(p.item_name);
+    inboundIdx[key] = (inboundIdx[key] || 0) + Math.max(0, ord - rec);
+  });
+
   if (!rows.length && !feoos.length) {
     tbody.innerHTML = '<tr><td colspan="10" class="empty">Upload both CSVs to see priority flags</td></tr>';
     return;
@@ -882,6 +896,11 @@ function renderFlags(rows, feoos) {
     const rowClass = f.priority==='CRITICAL' ? 'flag-row-crit' : f.priority==='HIGH' ? 'flag-row-high' : 'flag-row-watch';
     const badge    = f.priority==='CRITICAL' ? 'badge-crit' : f.priority==='HIGH' ? 'badge-high' : 'badge-watch';
     const issueTags = f.issues.map(i=>`<span class="badge ${badge}" style="margin:1px">${i}</span>`).join(' ');
+    const key        = (f.warehouse_name||'') + '::' + normName(f.item_name);
+    const inboundQty = inboundIdx[key] || 0;
+    const cons       = num(f._row.consumption_rate);
+    const pipelineDoc = cons > 0 ? (f.inventory + inboundQty) / cons : null;
+    const pipelineCell = pipelineDoc != null ? docBadge(pipelineDoc) : '<span style="color:#a0aec0">—</span>';
     return `<tr class="${rowClass}">
       <td><span class="badge ${badge}">${f.priority}</span></td>
       <td class="trunc" title="${f.item_name}"><strong>${f.item_name}</strong></td>
@@ -891,22 +910,28 @@ function renderFlags(rows, feoos) {
       <td>${f.feEvents}</td>
       <td>${f.feLocs}</td>
       <td>${f.inventory.toFixed(0)}</td>
-      <td>${docBadge(f.net_days_of_cover)}</td>
+      <td>${pipelineCell}</td>
       <td>${nextPoDate(f._row, nextPoIdx) || '—'}</td>
     </tr>`;
-  }), 10, flags.map(f => ({
-    'Item UUID':         f.item_uuid,
-    'Priority':          f.priority,
-    'Item':              f.item_name,
-    'Warehouse':         f.warehouse_name,
-    'Issues':            f.issues.join('; '),
-    'FEOOS Qty (14d)':   f.feQty.toFixed(0),
-    'FEOOS Events':      f.feEvents,
-    'Locations Hit':     f.feLocs,
-    'On Hand':           f.inventory.toFixed(0),
-    'Net DoC':           f.net_days_of_cover,
-    'Next PO Delivery':  nextPoDate(f._row, nextPoIdx),
-  })));
+  }), 10, flags.map(f => {
+    const key        = (f.warehouse_name||'') + '::' + normName(f.item_name);
+    const inboundQty = inboundIdx[key] || 0;
+    const cons       = num(f._row.consumption_rate);
+    const pipelineDoc = cons > 0 ? (f.inventory + inboundQty) / cons : null;
+    return {
+      'Item UUID':         f.item_uuid,
+      'Priority':          f.priority,
+      'Item':              f.item_name,
+      'Warehouse':         f.warehouse_name,
+      'Issues':            f.issues.join('; '),
+      'FEOOS Qty (14d)':   f.feQty.toFixed(0),
+      'FEOOS Events':      f.feEvents,
+      'Locations Hit':     f.feLocs,
+      'On Hand':           f.inventory.toFixed(0),
+      'DoC w/ PO':         pipelineDoc != null ? Math.round(pipelineDoc) : '',
+      'Next PO Delivery':  nextPoDate(f._row, nextPoIdx),
+    };
+  }));
 }
 
 // ─── Charts ───────────────────────────────────────────────────────────────────
