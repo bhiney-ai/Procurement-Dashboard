@@ -137,6 +137,83 @@
 
     @media (max-width: 1100px) { .chart-row { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 900px) { .kpi-row { grid-template-columns: repeat(2,1fr); } .chart-row { grid-template-columns: 1fr; } .main { padding: 12px; } }
+
+    /* ── Feedback widget ───────────────────────────────────────────────────────── */
+    #fb-btn {
+      position: fixed; bottom: 24px; right: 24px; z-index: 900;
+      background: #667eea; color: #fff; border: none; border-radius: 50px;
+      padding: 10px 18px; font-size: .82rem; font-weight: 700; cursor: pointer;
+      box-shadow: 0 4px 14px rgba(102,126,234,.45); display: flex; align-items: center; gap: 7px;
+      transition: background .15s, transform .1s;
+    }
+    #fb-btn:hover { background: #5a67d8; transform: translateY(-1px); }
+    #fb-btn .fb-badge {
+      background: #f56565; color: #fff; border-radius: 50%; width: 18px; height: 18px;
+      font-size: .65rem; display: none; align-items: center; justify-content: center; font-weight: 700;
+    }
+    #fb-btn .fb-badge.show { display: flex; }
+
+    #fb-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 950; align-items: flex-end; justify-content: flex-end;
+    }
+    #fb-overlay.open { display: flex; }
+
+    #fb-modal {
+      background: #fff; border-radius: 14px 14px 0 0; width: 380px; max-width: 100vw;
+      margin: 0 24px 80px 0; box-shadow: 0 -4px 30px rgba(0,0,0,.18);
+      display: flex; flex-direction: column; overflow: hidden;
+      animation: fb-slide-up .2s ease;
+    }
+    @keyframes fb-slide-up { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+    #fb-modal .fb-head {
+      background: #1a1a2e; color: #fff; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between;
+    }
+    #fb-modal .fb-head h3 { font-size: .88rem; font-weight: 700; }
+    #fb-modal .fb-head .fb-tabs { display: flex; gap: 4px; }
+    #fb-modal .fb-head .fb-tab {
+      font-size: .7rem; padding: 3px 10px; border-radius: 20px; cursor: pointer; color: #8892a4; border: none; background: none; font-weight: 600;
+    }
+    #fb-modal .fb-head .fb-tab.active { background: #667eea; color: #fff; }
+    #fb-modal .fb-close { background: none; border: none; color: #8892a4; font-size: 1.2rem; cursor: pointer; line-height: 1; padding: 0; margin-left: 10px; }
+    #fb-modal .fb-close:hover { color: #fff; }
+
+    #fb-submit-pane { padding: 16px 18px; display: flex; flex-direction: column; gap: 11px; }
+    #fb-submit-pane .fb-row { display: flex; gap: 8px; }
+    #fb-submit-pane select, #fb-submit-pane input, #fb-submit-pane textarea {
+      width: 100%; border: 1px solid #e2e8f0; border-radius: 7px; padding: 8px 10px;
+      font-size: .8rem; font-family: inherit; color: #1a1a2e; background: #f7fafc;
+      resize: none; outline: none; transition: border-color .15s;
+    }
+    #fb-submit-pane select:focus, #fb-submit-pane input:focus, #fb-submit-pane textarea:focus { border-color: #667eea; background: #fff; }
+    #fb-submit-pane label { font-size: .7rem; font-weight: 700; color: #718096; margin-bottom: 2px; display: block; }
+    #fb-submit-pane .fb-field { display: flex; flex-direction: column; }
+    #fb-submit-pane .fb-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; }
+    #fb-submit-pane .fb-send {
+      background: #667eea; color: #fff; border: none; border-radius: 7px;
+      padding: 8px 20px; font-size: .8rem; font-weight: 700; cursor: pointer;
+    }
+    #fb-submit-pane .fb-send:hover { background: #5a67d8; }
+    #fb-submit-pane .fb-cancel { background: none; border: 1px solid #e2e8f0; border-radius: 7px; padding: 8px 14px; font-size: .8rem; cursor: pointer; color: #718096; }
+    #fb-submit-pane .fb-cancel:hover { background: #f7fafc; }
+    #fb-submit-pane .fb-success { text-align: center; padding: 18px 0 8px; font-size: .85rem; color: #276749; font-weight: 600; display: none; }
+
+    #fb-log-pane { padding: 0 18px 16px; display: none; flex-direction: column; gap: 0; max-height: 320px; overflow-y: auto; }
+    #fb-log-pane.active { display: flex; }
+    #fb-log-pane .fb-log-empty { font-size: .8rem; color: #a0aec0; text-align: center; padding: 24px 0; }
+    .fb-log-item { border-bottom: 1px solid #f0f4f8; padding: 10px 0; }
+    .fb-log-item:last-child { border-bottom: none; }
+    .fb-log-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .fb-log-cat { font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding: 2px 7px; border-radius: 20px; }
+    .fb-log-cat.bug     { background: #fff5f5; color: #c53030; }
+    .fb-log-cat.feature { background: #ebf4ff; color: #2b6cb0; }
+    .fb-log-cat.data    { background: #fffff0; color: #744210; }
+    .fb-log-cat.other   { background: #f0fff4; color: #276749; }
+    .fb-log-date { font-size: .67rem; color: #a0aec0; margin-left: auto; }
+    .fb-log-text { font-size: .78rem; color: #2d3748; line-height: 1.45; }
+    .fb-log-del { background: none; border: none; font-size: .7rem; color: #e53e3e; cursor: pointer; margin-left: 6px; opacity: .6; }
+    .fb-log-del:hover { opacity: 1; }
+    #fb-log-clear { font-size: .7rem; color: #e53e3e; background: none; border: none; cursor: pointer; padding: 6px 0 0; align-self: flex-end; }
   </style>
 </head>
 <body>
@@ -1672,6 +1749,159 @@ document.getElementById('pos-file').addEventListener('change', e => {
 
 // ─── Init — auto-fetch on load ────────────────────────────────────────────────
 fetchAll();
+</script>
+
+<!-- ── Feedback Widget ──────────────────────────────────────────────────────── -->
+<button id="fb-btn" onclick="fbOpen()">
+  💬 Feedback
+  <span class="fb-badge" id="fb-badge"></span>
+</button>
+
+<div id="fb-overlay" onclick="fbOverlayClick(event)">
+  <div id="fb-modal">
+    <div class="fb-head">
+      <h3>Dashboard Feedback</h3>
+      <div style="display:flex;align-items:center;gap:6px">
+        <div class="fb-tabs">
+          <button class="fb-tab active" id="fb-tab-submit" onclick="fbSwitchTab('submit')">Submit</button>
+          <button class="fb-tab" id="fb-tab-log" onclick="fbSwitchTab('log')">Log</button>
+        </div>
+        <button class="fb-close" onclick="fbClose()">✕</button>
+      </div>
+    </div>
+
+    <!-- Submit pane -->
+    <div id="fb-submit-pane">
+      <div class="fb-field">
+        <label>Category</label>
+        <select id="fb-cat">
+          <option value="bug">🐛 Bug / Something's wrong</option>
+          <option value="feature">✨ Feature request</option>
+          <option value="data">📊 Data issue</option>
+          <option value="other">💡 Other / General</option>
+        </select>
+      </div>
+      <div class="fb-field">
+        <label>Your name <span style="font-weight:400;color:#a0aec0">(optional)</span></label>
+        <input type="text" id="fb-name" placeholder="e.g. Alex" />
+      </div>
+      <div class="fb-field">
+        <label>Feedback</label>
+        <textarea id="fb-msg" rows="4" placeholder="Describe the issue or improvement…"></textarea>
+      </div>
+      <div class="fb-success" id="fb-success">✅ Saved! Opening email…</div>
+      <div class="fb-actions">
+        <button class="fb-cancel" onclick="fbClose()">Cancel</button>
+        <button class="fb-send" onclick="fbSubmit()">Send Feedback</button>
+      </div>
+    </div>
+
+    <!-- Log pane -->
+    <div id="fb-log-pane">
+      <div id="fb-log-list"></div>
+      <button id="fb-log-clear" onclick="fbClearAll()">Clear all</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const FB_KEY = 'procurement_feedback_v1';
+const FB_EMAIL = 'brianhiney@odeko.com';
+
+function fbLoad() { try { return JSON.parse(localStorage.getItem(FB_KEY) || '[]'); } catch(e) { return []; } }
+function fbSave(items) { localStorage.setItem(FB_KEY, JSON.stringify(items)); }
+
+function fbUpdateBadge() {
+  const n = fbLoad().length;
+  const b = document.getElementById('fb-badge');
+  b.textContent = n;
+  b.classList.toggle('show', n > 0);
+}
+
+function fbOpen() {
+  document.getElementById('fb-overlay').classList.add('open');
+  fbSwitchTab('submit');
+  fbUpdateBadge();
+}
+function fbClose() { document.getElementById('fb-overlay').classList.remove('open'); }
+function fbOverlayClick(e) { if (e.target === document.getElementById('fb-overlay')) fbClose(); }
+
+function fbSwitchTab(tab) {
+  document.getElementById('fb-tab-submit').classList.toggle('active', tab === 'submit');
+  document.getElementById('fb-tab-log').classList.toggle('active', tab === 'log');
+  document.getElementById('fb-submit-pane').style.display = tab === 'submit' ? '' : 'none';
+  const lp = document.getElementById('fb-log-pane');
+  lp.classList.toggle('active', tab === 'log');
+  if (tab === 'log') fbRenderLog();
+}
+
+function fbSubmit() {
+  const msg = document.getElementById('fb-msg').value.trim();
+  if (!msg) { document.getElementById('fb-msg').focus(); return; }
+  const cat  = document.getElementById('fb-cat').value;
+  const name = document.getElementById('fb-name').value.trim() || 'Anonymous';
+  const item = { id: Date.now(), cat, name, msg, ts: new Date().toISOString() };
+
+  const items = fbLoad();
+  items.unshift(item);
+  fbSave(items);
+  fbUpdateBadge();
+
+  // Show success + open mailto
+  document.getElementById('fb-success').style.display = 'block';
+  const catLabel = { bug: 'Bug', feature: 'Feature Request', data: 'Data Issue', other: 'Other' }[cat] || cat;
+  const subject  = encodeURIComponent(`[Dashboard Feedback] ${catLabel} — from ${name}`);
+  const body     = encodeURIComponent(`Category: ${catLabel}\nFrom: ${name}\n\n${msg}\n\n---\nSubmitted: ${new Date().toLocaleString()}`);
+  setTimeout(() => { window.location.href = `mailto:${FB_EMAIL}?subject=${subject}&body=${body}`; }, 400);
+
+  // Reset form after delay
+  setTimeout(() => {
+    document.getElementById('fb-msg').value = '';
+    document.getElementById('fb-name').value = '';
+    document.getElementById('fb-success').style.display = 'none';
+    fbClose();
+  }, 2200);
+}
+
+function fbRenderLog() {
+  const items = fbLoad();
+  const el = document.getElementById('fb-log-list');
+  if (!items.length) {
+    el.innerHTML = '<div class="fb-log-empty">No feedback submitted yet.</div>';
+    document.getElementById('fb-log-clear').style.display = 'none';
+    return;
+  }
+  document.getElementById('fb-log-clear').style.display = '';
+  el.innerHTML = items.map(it => {
+    const catLabel = { bug: 'Bug', feature: 'Feature', data: 'Data', other: 'Other' }[it.cat] || it.cat;
+    const date = new Date(it.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return `<div class="fb-log-item">
+      <div class="fb-log-meta">
+        <span class="fb-log-cat ${it.cat}">${catLabel}</span>
+        <span style="font-size:.73rem;color:#4a5568">${it.name}</span>
+        <span class="fb-log-date">${date}</span>
+        <button class="fb-log-del" onclick="fbDelete(${it.id})" title="Delete">✕</button>
+      </div>
+      <div class="fb-log-text">${it.msg.replace(/</g,'&lt;')}</div>
+    </div>`;
+  }).join('');
+}
+
+function fbDelete(id) {
+  fbSave(fbLoad().filter(i => i.id !== id));
+  fbUpdateBadge();
+  fbRenderLog();
+}
+
+function fbClearAll() {
+  if (!confirm('Clear all saved feedback?')) return;
+  fbSave([]);
+  fbUpdateBadge();
+  fbRenderLog();
+}
+
+// Init badge on page load
+fbUpdateBadge();
 </script>
 </body>
 </html>
