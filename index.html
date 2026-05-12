@@ -373,7 +373,7 @@
   <!-- Overpurchased POs -->
   <div class="table-card">
     <h2>📦 PO Quantities Exceeding 100 Days of Coverage <span class="pill-count pill-orange" id="overpurchased-count"></span> <button class="dl-btn" onclick="downloadCSV('overpurchased-tbody')">⬇ CSV</button></h2>
-    <p style="font-size:.72rem;color:#a0aec0;margin-bottom:10px;">Open PO lines where outstanding (not-yet-received) quantity ÷ daily consumption rate exceeds 100 days of supply. Excludes received and closed orders.</p>
+    <p style="font-size:.72rem;color:#a0aec0;margin-bottom:10px;">Open PO lines where ordered quantity ÷ daily consumption rate exceeds 100 days of supply. Excludes received and closed orders.</p>
     <table>
       <thead>
         <tr>
@@ -1233,11 +1233,10 @@ function renderOverpurchased(feIdx) {
     const inv         = invIdx[key];
     const consumption = inv ? num(inv.consumption_rate) : 0;
     if (consumption <= 0) return [];                       // can't calculate DoC without rate
-    // Use outstanding (not-yet-received) quantity for accurate DoC calculation
-    const outstanding   = Math.max(0, num(p.purchase_order_units) - num(p.quantity_received_pu));
-    const poDaysOfCover = outstanding / consumption;
+    const poQty         = num(p.purchase_order_units);
+    const poDaysOfCover = poQty / consumption;
     if (poDaysOfCover <= 100) return [];
-    return [{ ...p, consumption, poDaysOfCover, outstanding }];
+    return [{ ...p, consumption, poDaysOfCover }];
   }).sort((a, b) => b.poDaysOfCover - a.poDaysOfCover);
 
   document.getElementById('overpurchased-count').textContent = flagged.length;
@@ -1265,7 +1264,7 @@ function renderOverpurchased(feIdx) {
       <td>${vendorName(p.full_vendor_name)}</td>
       <td style="font-family:monospace;font-size:.73rem">${p.purchase_order_number}</td>
       <td>${p.expected_receipt_date_date || '—'}</td>
-      <td>${p.outstanding.toFixed(0)} ${p.purchase_unit_name||''}<span style="font-size:.68rem;color:#a0aec0;margin-left:4px">(of ${num(p.purchase_order_units).toFixed(0)} ordered)</span></td>
+      <td>${num(p.purchase_order_units).toFixed(0)} ${p.purchase_unit_name||''}</td>
       <td>${p.consumption.toFixed(2)}/day</td>
       <td>${docCoverBadge(p.poDaysOfCover)}</td>
       <td>${feCell}</td>
@@ -1273,17 +1272,16 @@ function renderOverpurchased(feIdx) {
   }), 9, flagged.map(p => {
     const fe = feooLookup(feIdx, p.warehouse_name, p.item_name);
     return {
-      'Item UUID':              p.item_uuid || '',
-      'Item':                   p.item_name,
-      'Warehouse':              p.warehouse_name,
-      'Vendor':                 vendorName(p.full_vendor_name),
-      'PO Number':              p.purchase_order_number,
-      'Expected Date':          p.expected_receipt_date_date || '',
-      'Outstanding Qty':        p.outstanding.toFixed(0),
-      'Total Ordered':          num(p.purchase_order_units).toFixed(0),
-      'Consumption/Day':        p.consumption.toFixed(2),
-      'PO Days of Cover':       Math.round(p.poDaysOfCover),
-      'FEOOS (14d)':            fe ? fe.qty.toFixed(0) : '0',
+      'Item UUID':         p.item_uuid || '',
+      'Item':              p.item_name,
+      'Warehouse':         p.warehouse_name,
+      'Vendor':            vendorName(p.full_vendor_name),
+      'PO Number':         p.purchase_order_number,
+      'Expected Date':     p.expected_receipt_date_date || '',
+      'PO Qty':            num(p.purchase_order_units).toFixed(0),
+      'Consumption/Day':   p.consumption.toFixed(2),
+      'PO Days of Cover':  Math.round(p.poDaysOfCover),
+      'FEOOS (14d)':       fe ? fe.qty.toFixed(0) : '0',
     };
   }));
 }
