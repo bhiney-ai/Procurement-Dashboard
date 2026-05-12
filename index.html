@@ -497,6 +497,13 @@
 let state = { rows: [], feoos: [], pos: [], warehouses: new Set() }; // empty Set = All
 let charts = {};
 
+// ─── Debounce — prevents rapid warehouse-filter clicks from firing multiple renders ──
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+const debouncedRender = debounce(render, 150);
+
 // ─── Expand / collapse ────────────────────────────────────────────────────────
 const PAGE = 20;
 const PAGE_SIZES = { 'pastdue-tbody': 10, 'oos-tbody': 10, 'po14-tbody': 10, 'gap-tbody': 10, 'overpurchased-tbody': 10, 'expiry-tbody': 10 };
@@ -571,8 +578,13 @@ const num  = v => { const n=parseFloat(v); return isNaN(n)?0:n; };
 const bool = v => String(v).toUpperCase()==='TRUE';
 const topCat = v => (v||'').split(':')[0].trim();
 
+// Memoized — same strings appear hundreds of thousands of times across 26K inv + 18K PO rows
+const _normCache = new Map();
 function normName(s) {
-  return (s||'').toLowerCase().replace(/[^a-z0-9]/g,' ').replace(/\s+/g,' ').trim();
+  if (_normCache.has(s)) return _normCache.get(s);
+  const v = (s||'').toLowerCase().replace(/[^a-z0-9]/g,' ').replace(/\s+/g,' ').trim();
+  _normCache.set(s, v);
+  return v;
 }
 
 function docBadge(v) {
@@ -673,59 +685,52 @@ function posLookup(idx, warehouseName, itemName) {
 // Open PO date index per warehouse::item — prefers earliest FUTURE date,
 // falls back to any open past-due PO date. Used as fallback when the inventory
 // dump's next_po_delivery_date field is blank or missing.
-function buildNextPoIdx() {
-  const idx     = {};  // key -> { date, isFuture }
+// Also builds a fuzzy index keyed by warehousePrefix::normName to avoid O(n²) scans.
+function buildNextPoIdx(filteredPos) {
+  const idx      = {};  // exact: wh::normName -> { date, isFuture }
+  const fuzzyIdx = {};  // fuzzy: whBase::normName -> { date, isFuture }
   const todayIso = new Date().toISOString().slice(0,10);
-  if (!state.pos.length) return idx;
-  posFiltered().forEach(p => {
+  if (!filteredPos.length) return { exact: {}, fuzzy: {} };
+
+  filteredPos.forEach(p => {
     if (!p.expected_receipt_date_date) return;
     if (p.shipment_received_utc_date && p.shipment_received_utc_date.trim()) return;
     if (num(p.purchase_order_units) > 0 && num(p.quantity_received_pu) >= num(p.purchase_order_units)) return;
-    const key      = (p.warehouse_name||'') + '::' + normName(p.item_name);
-    const isFuture = p.expected_receipt_date_date >= todayIso;
-    const existing = idx[key];
-    if (!existing) {
-      idx[key] = { date: p.expected_receipt_date_date, isFuture };
-    } else if (!existing.isFuture && isFuture) {
-      // Upgrade: prefer a future date over any past-due date
-      idx[key] = { date: p.expected_receipt_date_date, isFuture: true };
-    } else if (existing.isFuture === isFuture) {
-      // Same type — take the earliest
-      if (p.expected_receipt_date_date < existing.date) idx[key] = { date: p.expected_receipt_date_date, isFuture };
+
+    const itemNorm = normName(p.item_name);
+    const wh       = p.warehouse_name || '';
+    const whBase   = wh.split('-')[0];
+    const exactKey = wh      + '::' + itemNorm;
+    const fuzzyKey = whBase  + '::' + itemNorm;
+    const d        = p.expected_receipt_date_date;
+    const isFuture = d >= todayIso;
+
+    function upsert(store, key) {
+      const existing = store[key];
+      if (!existing) { store[key] = { date: d, isFuture }; }
+      else if (!existing.isFuture && isFuture) { store[key] = { date: d, isFuture: true }; }
+      else if (existing.isFuture === isFuture && d < existing.date) { store[key] = { date: d, isFuture }; }
     }
+    upsert(idx, exactKey);
+    upsert(fuzzyIdx, fuzzyKey);
   });
-  // Flatten to plain date strings
-  return Object.fromEntries(Object.entries(idx).map(([k,v]) => [k, v.date]));
+
+  const flatten = obj => Object.fromEntries(Object.entries(obj).map(([k,v]) => [k, v.date]));
+  return { exact: flatten(idx), fuzzy: flatten(fuzzyIdx) };
 }
 
+// nextPoIdx is now { exact, fuzzy } — no more O(n) scan per item
 function nextPoDate(r, nextPoIdx) {
   // 1. Inventory dump field (direct)
   const direct = (r.next_po_delivery_date || r.next_po_delivery_date_date || '').trim();
   if (direct) return direct;
-  // 2. PO index lookup — exact warehouse::normName match
-  const key = (r.warehouse_name||'') + '::' + normName(r.item_name);
-  if (nextPoIdx[key]) return nextPoIdx[key];
-  // 3. Fuzzy fallback: scan all open POs matching item name + warehouse prefix
-  //    (catches cases where inventory has "PDX1" but PO sheet has "PDX1-OR" etc.)
-  if (state.pos.length) {
-    const itemNorm = normName(r.item_name);
-    const whBase   = (r.warehouse_name||'').split('-')[0];
-    const todayIso = new Date().toISOString().slice(0,10);
-    let best = '';
-    state.pos.forEach(p => {
-      if (normName(p.item_name) !== itemNorm) return;
-      if (!((p.warehouse_name||'').startsWith(whBase))) return;
-      if (p.shipment_received_utc_date && p.shipment_received_utc_date.trim()) return;
-      if (num(p.purchase_order_units) > 0 && num(p.quantity_received_pu) >= num(p.purchase_order_units)) return;
-      if (!p.expected_receipt_date_date) return;
-      const d = p.expected_receipt_date_date;
-      const isFuture = d >= todayIso;
-      if (!best || (isFuture && best < todayIso) ||
-          (isFuture === (best >= todayIso) && d < best)) best = d;
-    });
-    if (best) return best;
-  }
-  return '';
+  // 2. Exact warehouse::normName match
+  const itemNorm = normName(r.item_name);
+  const exactKey = (r.warehouse_name||'') + '::' + itemNorm;
+  if (nextPoIdx.exact[exactKey]) return nextPoIdx.exact[exactKey];
+  // 3. Fuzzy: whBase::normName (handles PDX1 vs PDX1-OR mismatches)
+  const fuzzyKey = (r.warehouse_name||'').split('-')[0] + '::' + itemNorm;
+  return nextPoIdx.fuzzy[fuzzyKey] || '';
 }
 
 // ─── KPI Cache (localStorage) ─────────────────────────────────────────────────
@@ -779,12 +784,12 @@ function renderDelta(elId, current, previous, higherIsBetter) {
 }
 
 // ─── KPIs ─────────────────────────────────────────────────────────────────────
-function updateKPIs(rows, feoos) {
+function updateKPIs(rows, feoos, pos) {
   const catalog = rows.filter(r=>bool(r.in_catalog));
   const total   = catalog.length;
   const netIn   = catalog.filter(r=>num(r.net_inventory)>0).length;
   const ohOOS   = catalog.filter(r=>num(r.inventory)<=0).length;
-  const pastDuePOs = getPastDuePOs(posFiltered());
+  const pastDuePOs = getPastDuePOs(pos);
   const pastDue = state.pos.length
     ? new Set(pastDuePOs.map(p => (p.warehouse_name||'') + '::' + normName(p.item_name))).size
     : rows.filter(r=>num(r.past_due)>0).length;
@@ -822,8 +827,8 @@ function updateKPIs(rows, feoos) {
 function setText(id,v){ document.getElementById(id).textContent=v; }
 
 // ─── Priority Flags ───────────────────────────────────────────────────────────
-function buildFlags(rows, feoos) {
-  const idx = buildFeooIndex(feoos);
+function buildFlags(rows, feoos, idx) {
+  if (!idx) idx = buildFeooIndex(feoos); // fallback if called standalone
   const flags = [];
 
   rows.forEach(r => {
@@ -864,24 +869,9 @@ function buildFlags(rows, feoos) {
   return flags.sort((a,b) => (order[a.priority]-order[b.priority]) || (b.feQty-a.feQty));
 }
 
-function renderFlags(rows, feoos) {
-  const flags    = buildFlags(rows, feoos);
-  const nextPoIdx = buildNextPoIdx();
+function renderFlags(rows, feoos, feIdx, nextPoIdx, inboundIdx) {
+  const flags = buildFlags(rows, feoos, feIdx);
   const tbody = document.getElementById('flags-tbody');
-
-  // Build inbound quantity index: wh::normName -> total outstanding units from open future POs
-  const today0 = new Date(); today0.setHours(0,0,0,0);
-  const inboundIdx = {};
-  posFiltered().forEach(p => {
-    if (!p.expected_receipt_date_date) return;
-    if (p.shipment_received_utc_date && p.shipment_received_utc_date.trim()) return;
-    const ord = num(p.purchase_order_units), rec = num(p.quantity_received_pu);
-    if (ord > 0 && rec >= ord) return;
-    const expDate = new Date(p.expected_receipt_date_date); expDate.setHours(0,0,0,0);
-    if (expDate < today0) return;
-    const key = (p.warehouse_name||'') + '::' + normName(p.item_name);
-    inboundIdx[key] = (inboundIdx[key] || 0) + Math.max(0, ord - rec);
-  });
 
   if (!rows.length && !feoos.length) {
     tbody.innerHTML = '<tr><td colspan="10" class="empty">Upload both CSVs to see priority flags</td></tr>';
@@ -1001,12 +991,12 @@ function drawEmpty(ctx, msg) {
 }
 
 // ─── Tables ───────────────────────────────────────────────────────────────────
-function renderPastDue(rows, feIdx) {
+function renderPastDue(rows, feIdx, pos) {
   const today = new Date(); today.setHours(0,0,0,0);
 
   // Prefer granular PO sheet; fall back to inventory dump
   if (state.pos.length) {
-    const pastDue = getPastDuePOs(posFiltered())
+    const pastDue = getPastDuePOs(pos)
       .map(p => ({ ...p, daysOverdue: Math.ceil((today - new Date(p.expected_receipt_date_date)) / 86400000) }))
       .sort((a,b) => b.daysOverdue - a.daysOverdue);
 
@@ -1077,10 +1067,8 @@ function renderPastDue(rows, feIdx) {
   }), 10);
 }
 
-function renderOOS(rows, feIdx) {
+function renderOOS(rows, feIdx, nextPoIdx) {
   const today = new Date();
-
-  const nextPoIdx = buildNextPoIdx();
 
   const oos = rows.filter(r=>bool(r.in_catalog)&&num(r.inventory)<=0).sort((a,b)=>num(b.consumption_rate)-num(a.consumption_rate));
   document.getElementById('oos-count').textContent = oos.length;
@@ -1139,12 +1127,12 @@ function renderOOS(rows, feIdx) {
 }
 
 // ─── +7 Day Past Due POs — PO-level table ────────────────────────────────────
-function renderPo14(feIdx) {
+function renderPo14(feIdx, pos) {
   const today = new Date(); today.setHours(0,0,0,0);
 
   // Group past-due lines by PO number
   const byPO = {};
-  getPastDuePOs(posFiltered()).forEach(p => {
+  getPastDuePOs(pos).forEach(p => {
     const daysOverdue = Math.ceil((today - new Date(p.expected_receipt_date_date)) / 86400000);
     if (daysOverdue < 7) return;
     const po = p.purchase_order_number;
@@ -1213,21 +1201,8 @@ function renderPo14(feIdx) {
 }
 
 // ─── Coverage Gap table ───────────────────────────────────────────────────────
-function renderCoverageGap(rows, feIdx) {
+function renderCoverageGap(rows, feIdx, pos, nextPoIdx, inboundIdx) {
   const today = new Date(); today.setHours(0,0,0,0);
-
-  // Build inbound quantity index from open FUTURE POs: wh::normName -> outstanding units
-  const inboundIdx = {};
-  posFiltered().forEach(p => {
-    if (!p.expected_receipt_date_date) return;
-    if (p.shipment_received_utc_date && p.shipment_received_utc_date.trim()) return;
-    const ord = num(p.purchase_order_units), rec = num(p.quantity_received_pu);
-    if (ord > 0 && rec >= ord) return;
-    const expDate = new Date(p.expected_receipt_date_date); expDate.setHours(0,0,0,0);
-    if (expDate < today) return; // future POs only for inbound calc
-    const key = (p.warehouse_name||'') + '::' + normName(p.item_name);
-    inboundIdx[key] = (inboundIdx[key] || 0) + Math.max(0, ord - rec);
-  });
 
   const flagged = rows
     .filter(r => {
@@ -1308,7 +1283,7 @@ function renderCoverageGap(rows, feIdx) {
 }
 
 // ─── Overpurchased POs (>100 days of cover) ───────────────────────────────────
-function renderOverpurchased(feIdx) {
+function renderOverpurchased(feIdx, rows, pos) {
   if (!state.pos.length) {
     document.getElementById('overpurchased-tbody').innerHTML =
       '<tr><td colspan="9" class="empty">No PO data loaded</td></tr>';
@@ -1318,13 +1293,13 @@ function renderOverpurchased(feIdx) {
 
   // Build inventory lookup: warehouse::normName -> row (for consumption_rate)
   const invIdx = {};
-  filtered().forEach(r => {
+  rows.forEach(r => {
     const key = (r.warehouse_name||'') + '::' + normName(r.item_name);
     invIdx[key] = r;
   });
 
   // Open PO lines: not received, not closed
-  const openPos = posFiltered().filter(p => {
+  const openPos = pos.filter(p => {
     if (p.shipment_received_utc_date && p.shipment_received_utc_date.trim()) return false;
     const ordered   = num(p.purchase_order_units);
     const received  = num(p.quantity_received_pu);
@@ -1601,7 +1576,7 @@ function selectGroup(groupName) {
   state.warehouses = new Set([...document.querySelectorAll('.wh-cb:checked')].map(c => c.value));
   if (!state.warehouses.size) { allCb.checked = true; }
   updateWhBtn();
-  render();
+  debouncedRender();
 }
 
 function onWhChange() {
@@ -1617,7 +1592,7 @@ function onWhChange() {
     if (!state.warehouses.size) { allCb.checked = true; }
   }
   updateWhBtn();
-  render();
+  debouncedRender();
 }
 
 function updateWhBtn() {
@@ -1661,20 +1636,37 @@ document.addEventListener('click', e => {
 
 // ─── Render ───────────────────────────────────────────────────────────────────
 function render() {
+  // ── Compute everything once and share ─────────────────────────────────────────
   const rows  = filtered();
   const feoos = feooFiltered();
+  const pos   = posFiltered();
   const feIdx = buildFeooIndex(feoos);
 
-  updateKPIs(rows, feoos);
-  renderFlags(rows, feoos);
+  // Build all PO-derived indices in a single pass over pos
+  const nextPoIdx  = buildNextPoIdx(pos);
+  const today0     = new Date(); today0.setHours(0,0,0,0);
+  const todayIso   = today0.toISOString().slice(0,10);
+  const inboundIdx = {};   // wh::normName -> outstanding future-PO units
+  pos.forEach(p => {
+    if (!p.expected_receipt_date_date) return;
+    if (p.shipment_received_utc_date && p.shipment_received_utc_date.trim()) return;
+    const ord = num(p.purchase_order_units), rec = num(p.quantity_received_pu);
+    if (ord > 0 && rec >= ord) return;
+    if (p.expected_receipt_date_date < todayIso) return;
+    const key = (p.warehouse_name||'') + '::' + normName(p.item_name);
+    inboundIdx[key] = (inboundIdx[key] || 0) + Math.max(0, ord - rec);
+  });
+
+  updateKPIs(rows, feoos, pos);
+  renderFlags(rows, feoos, feIdx, nextPoIdx, inboundIdx);
   buildFeooWhChart(feoos);
   buildFeooItemsChart(feoos);
   buildDocChart(rows);
-  renderPastDue(rows, feIdx);
-  renderOOS(rows, feIdx);
-  renderPo14(feIdx);
-  renderCoverageGap(rows, feIdx);
-  renderOverpurchased(feIdx);
+  renderPastDue(rows, feIdx, pos);
+  renderOOS(rows, feIdx, nextPoIdx);
+  renderPo14(feIdx, pos);
+  renderCoverageGap(rows, feIdx, pos, nextPoIdx, inboundIdx);
+  renderOverpurchased(feIdx, rows, pos);
   renderExpirationRisk(rows);
 }
 
