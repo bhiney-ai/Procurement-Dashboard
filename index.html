@@ -1233,10 +1233,10 @@ function renderOverpurchased(feIdx) {
     const inv         = invIdx[key];
     const consumption = inv ? num(inv.consumption_rate) : 0;
     if (consumption <= 0) return [];                       // can't calculate DoC without rate
-    const poQty         = num(p.purchase_order_units);
-    const poDaysOfCover = poQty / consumption;
+    const outstanding   = Math.max(0, num(p.purchase_order_units) - num(p.quantity_received_pu));
+    const poDaysOfCover = outstanding / consumption;
     if (poDaysOfCover <= 100) return [];
-    return [{ ...p, consumption, poDaysOfCover }];
+    return [{ ...p, consumption, outstanding, poDaysOfCover }];
   }).sort((a, b) => b.poDaysOfCover - a.poDaysOfCover);
 
   document.getElementById('overpurchased-count').textContent = flagged.length;
@@ -1264,7 +1264,7 @@ function renderOverpurchased(feIdx) {
       <td>${vendorName(p.full_vendor_name)}</td>
       <td style="font-family:monospace;font-size:.73rem">${p.purchase_order_number}</td>
       <td>${p.expected_receipt_date_date || '—'}</td>
-      <td>${num(p.purchase_order_units).toFixed(0)} ${p.purchase_unit_name||''}</td>
+      <td>${p.outstanding.toFixed(0)} ${p.purchase_unit_name||''}</td>
       <td>${p.consumption.toFixed(2)}/day</td>
       <td>${docCoverBadge(p.poDaysOfCover)}</td>
       <td>${feCell}</td>
@@ -1278,7 +1278,7 @@ function renderOverpurchased(feIdx) {
       'Vendor':            vendorName(p.full_vendor_name),
       'PO Number':         p.purchase_order_number,
       'Expected Date':     p.expected_receipt_date_date || '',
-      'PO Qty':            num(p.purchase_order_units).toFixed(0),
+      'PO Qty (Outstanding)': p.outstanding.toFixed(0),
       'Consumption/Day':   p.consumption.toFixed(2),
       'PO Days of Cover':  Math.round(p.poDaysOfCover),
       'FEOOS (14d)':       fe ? fe.qty.toFixed(0) : '0',
