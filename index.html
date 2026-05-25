@@ -146,8 +146,70 @@
     }
     .expand-btn:hover { background: #edf2ff; }
 
-    @media (max-width: 1100px) { .chart-row { grid-template-columns: 1fr 1fr; } }
-    @media (max-width: 900px) { .kpi-row { flex-wrap: wrap; } .kpi-card { min-width: 50%; border-bottom: 1px solid #2d3748; } .chart-row { grid-template-columns: 1fr; } .main { padding: 12px; } }
+    /* ── Responsive ────────────────────────────────────────────────────────────── */
+
+    /* Tablet — 1100px */
+    @media (max-width: 1100px) {
+      .chart-row { grid-template-columns: 1fr 1fr; }
+    }
+
+    /* Tablet — 900px */
+    @media (max-width: 900px) {
+      .chart-row { grid-template-columns: 1fr; }
+      .main { padding: 14px 16px; gap: 14px; }
+      .data-bar { padding: 8px 16px; gap: 14px; }
+      header { padding: 12px 16px; }
+    }
+
+    /* Mobile — 640px */
+    @media (max-width: 640px) {
+      /* Header: stack brand and controls */
+      header { flex-direction: column; align-items: flex-start; gap: 10px; padding: 12px 14px; }
+      .header-right { width: 100%; justify-content: space-between; gap: 8px; }
+      header h1 { font-size: 1rem; }
+
+      /* Data bar: wrap sources, push refresh to own row */
+      .data-bar { flex-wrap: wrap; padding: 8px 14px; gap: 10px; }
+      .refresh-btn { margin-left: 0; }
+      .manual-toggle { order: 10; }
+
+      /* KPI strip: 2 per row */
+      .kpi-row { flex-wrap: wrap; }
+      .kpi-card { min-width: 50%; border-bottom: 1px solid #2d3748; }
+      .kpi-card:nth-child(odd) { border-right: 1px solid #2d3748; }
+      .kpi-card:last-child { border-right: none; }
+
+      /* Charts: single column, shorter height */
+      .chart-wrap { height: 160px; }
+
+      /* Flags legend: stack */
+      .flags-legend { flex-direction: column; gap: 5px; }
+      .flags-header { padding: 12px 14px 0; }
+      .flags-title-row { flex-wrap: wrap; gap: 6px; }
+
+      /* Section padding */
+      .main { padding: 10px 12px; gap: 12px; }
+      .table-card-head { padding: 10px 14px; }
+      .table-card-desc { padding: 6px 14px 0; }
+      .card-head { padding: 10px 14px; }
+
+      /* Warehouse dropdown: full-width on mobile */
+      .wh-dropdown { right: auto; left: 0; min-width: 260px; max-height: 60vh; }
+
+      /* Feedback button: smaller on mobile */
+      #fb-btn { bottom: 16px; right: 16px; padding: 9px 14px; font-size: .78rem; }
+      #fb-modal { margin: 0 12px 74px 0; width: calc(100vw - 24px); }
+    }
+
+    /* Small mobile — 420px */
+    @media (max-width: 420px) {
+      /* KPI strip: 1 per row on very small screens */
+      .kpi-card { min-width: 100%; border-right: none !important; }
+      header h1 { font-size: .95rem; }
+      .header-logo { height: 18px; }
+      th { font-size: .6rem; padding: 6px 8px; }
+      td { font-size: .74rem; padding: 6px 8px; }
+    }
 
     /* ── Feedback widget ───────────────────────────────────────────────────────── */
     #fb-btn {
