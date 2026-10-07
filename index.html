@@ -1568,16 +1568,19 @@ function renderExpirationRisk(rows) {
 
 // ─── Warehouse groups ─────────────────────────────────────────────────────────
 const WH_GROUPS = [
-  { name: 'Christian Whitney', codes: ['DCA', 'MDT', 'SDF'] },
-  { name: 'Mikey Shutta',      codes: ['EWR', 'PWM'] },
-  { name: 'Jason Eidom',       codes: ['CLT', 'ATL', 'MIA'] },
+  { name: 'Nick Hemming',      codes: ['DCA', 'MDT', 'SDF'] },
+  { name: 'Mikey Shutta',      codes: ['EWR', 'PWM', 'BOS1'] },
+  { name: 'Jason Eidom',       codes: ['CLT', 'ATL', 'MIA', 'BNA1'] },
   { name: 'Condra Garner',     codes: ['DFW', 'AUS', 'HOU'] },
   { name: 'John Hoban',        codes: ['DEN', 'LAX', 'BLI'] },
   { name: 'Mitzy Mojaica',     codes: ['PDX', 'SEA', 'SMF'] },
-  { name: 'Tim Hibbs',         codes: ['BNA'] },
 ];
 
+// Warehouses that match a group code but belong under "Other"
+const WH_UNGROUPED = new Set(['MDT1-VA']);
+
 function whGroup(whName) {
+  if (WH_UNGROUPED.has(whName)) return null;
   return WH_GROUPS.find(g => g.codes.some(c => whName.startsWith(c))) || null;
 }
 
